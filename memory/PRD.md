@@ -29,12 +29,15 @@ Build a scalable SaaS CRM platform for a home appliance repair service company i
 - Frontend: 9 pages (Login, Dashboard, Leads list, Lead detail, Users, Wallet, Brand Kit, Analytics, Settings, My Jobs), responsive sidebar layout, sonner toasts, recharts bar chart
 - 28/28 backend pytest tests passing; full E2E flows verified
 
+## Added (Feb 2026 — v1.1)
+- **GST invoice PDF** — GET `/api/leads/{id}/invoice` generates A4 PDF via reportlab with CGST/SGST split (9%+9%), customer + technician block, line items, GO Repair brand colours. Available only when lead is `completed` with `final_cost`.
+- **Job photo uploads** — POST `/api/leads/{id}/attachments` multipart upload (jpg/png/webp/gif/heic, 8 MB cap). Served under `/api/uploads/{filename}` via FastAPI StaticFiles mount. Technicians & managers can attach; grid gallery shown on lead detail page.
+- **Brand logo** — Integrated the 3D gear-and-wrench logo uploaded by the user into login page hero and sidebar.
+
 ## Backlog
 ### P0 (next iteration if requested)
 - Razorpay live payment integration for /wallet/recharge (currently mocked)
 - WhatsApp/SMS notification on lead assignment & status changes (Twilio or Gupshup)
-- PDF invoice generation on completion (with GST)
-- Image/video upload on technician notes (object storage)
 
 ### P1
 - Live GPS tracking for technicians (background location push)

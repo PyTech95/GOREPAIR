@@ -51,8 +51,17 @@ function Sidebar({ open, onClose }) {
         data-testid="sidebar"
       >
         <div className="px-5 py-5 flex items-center justify-between border-b border-neutral-800">
-          <div className="font-display font-black text-xl tracking-tight">
-            G<span className="gr-logo-dot" />&nbsp;REPAIR
+          <div className="flex items-center gap-2">
+            <img
+              src="https://customer-assets.emergentagent.com/job_points-repair-net/artifacts/63eed0iz_image.png"
+              alt="GO Repair"
+              className="h-8 w-8 object-contain"
+              data-testid="sidebar-logo"
+            />
+            <div className="font-display font-black text-lg tracking-tight leading-none">
+              <div>GO</div>
+              <div className="text-[#ff5f1f] -mt-0.5">REPAIR</div>
+            </div>
           </div>
           <button onClick={onClose} className="lg:hidden text-neutral-400 hover:text-white" aria-label="Close">
             <X size={18} />

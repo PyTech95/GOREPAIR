@@ -3,7 +3,8 @@ import { useParams, Link } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { ArrowLeft, Sparkles, UserCheck, Star } from "lucide-react";
+import { ArrowLeft, Sparkles, UserCheck, Star, FileDown, ImagePlus, X as XIcon } from "lucide-react";
+import { API } from "@/lib/api";
 
 export default function LeadDetailPage() {
   const { lid } = useParams();
@@ -85,6 +86,40 @@ export default function LeadDetailPage() {
   const mgr = managers.find((m) => m.id === lead.manager_id);
   const tech = techs.find((t) => t.id === lead.technician_id);
   const canRate = user?.role !== "technician" && lead.status === "completed" && !lead.rating;
+  const canInvoice = lead.status === "completed" && lead.final_cost;
+
+  const downloadInvoice = async () => {
+    try {
+      const token = localStorage.getItem("gr_token");
+      const res = await fetch(`${API}/leads/${lid}/invoice`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.detail || "Failed to download invoice");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `GoRepair_Invoice_${lid.slice(0, 8)}.pdf`;
+      document.body.appendChild(a); a.click(); a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Invoice downloaded");
+    } catch (e) { toast.error(e.message || "Download failed"); }
+  };
+
+  const uploadImage = async (file) => {
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const token = localStorage.getItem("gr_token");
+      const res = await fetch(`${API}/leads/${lid}/attachments`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Upload failed"); }
+      toast.success("Photo uploaded");
+      load();
+    } catch (e) { toast.error(e.message || "Upload failed"); }
+  };
 
   return (
     <div className="space-y-6" data-testid="lead-detail">
@@ -105,6 +140,11 @@ export default function LeadDetailPage() {
             <div className="gr-overline">Points spent</div>
             <div className="font-display font-black text-2xl mt-1">{lead.cost_points}</div>
           </div>
+        )}
+        {canInvoice && (
+          <button className="gr-btn gr-btn-outline" onClick={downloadInvoice} data-testid="invoice-download-btn">
+            <FileDown size={15} /> Download GST invoice
+          </button>
         )}
       </div>
 
@@ -244,6 +284,41 @@ export default function LeadDetailPage() {
                 <span className="font-semibold">{lead.rating}/5</span>
               </div>
               {lead.rating_comment && <div className="text-sm text-neutral-600 mt-2">"{lead.rating_comment}"</div>}
+            </div>
+          )}
+
+          {/* Photos / Attachments */}
+          {(user?.role === "technician" || user?.role === "manager" || user?.role === "super_admin") && (
+            <div className="gr-card">
+              <div className="flex items-center justify-between mb-3">
+                <div className="gr-overline">Job photos</div>
+                {(user?.role === "technician" || user?.role === "manager") && (
+                  <label className="gr-btn gr-btn-outline cursor-pointer" data-testid="upload-photo-btn">
+                    <ImagePlus size={14} /> Upload
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); e.target.value = ""; }}
+                      data-testid="photo-file-input"
+                    />
+                  </label>
+                )}
+              </div>
+              {(lead.attachments || []).length === 0 ? (
+                <div className="text-sm text-neutral-400">No photos yet. Field technicians can upload up to 8 MB per image.</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2" data-testid="attachments-grid">
+                  {(lead.attachments || []).map((a) => (
+                    <a key={a.id} href={`${process.env.REACT_APP_BACKEND_URL}${a.url}`} target="_blank" rel="noreferrer"
+                      className="block border border-neutral-200 overflow-hidden hover:border-[#ff5f1f] transition-colors"
+                      data-testid={`attachment-${a.id}`}>
+                      <img src={`${process.env.REACT_APP_BACKEND_URL}${a.url}`} alt={a.filename} className="w-full h-28 object-cover" />
+                      <div className="px-2 py-1 text-[10px] font-mono text-neutral-500 truncate">{a.by_name} · {new Date(a.at).toLocaleDateString("en-IN")}</div>
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

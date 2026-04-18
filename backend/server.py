@@ -13,12 +13,19 @@ import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List, Literal
 
+import io
 import jwt
 import bcrypt
-from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query, UploadFile, File
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, EmailStr, Field
+
+UPLOAD_DIR = ROOT_DIR / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
 
 # -----------------------------------------------------------------------------
 # Config / DB
@@ -754,6 +761,183 @@ async def ai_suggest(lid: str, user: dict = Depends(require_roles("manager", "su
         return {"suggestions": scored[:3], "source": "heuristic"}
 
 # -----------------------------------------------------------------------------
+# Attachments (image upload on technician notes)
+# -----------------------------------------------------------------------------
+@api.post("/leads/{lid}/attachments")
+async def upload_attachment(lid: str, file: UploadFile = File(...), caption: Optional[str] = None, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    # Validate extension
+    name = file.filename or "photo"
+    ext = ("." + name.rsplit(".", 1)[-1]).lower() if "." in name else ""
+    if ext not in ALLOWED_IMAGE_EXT:
+        raise HTTPException(400, f"Unsupported file type. Allowed: {sorted(ALLOWED_IMAGE_EXT)}")
+    # Read (size cap 8 MB)
+    contents = await file.read()
+    if len(contents) > 8 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 8 MB)")
+    fname = f"{lid}_{uuid.uuid4().hex}{ext}"
+    path = UPLOAD_DIR / fname
+    with open(path, "wb") as f:
+        f.write(contents)
+    url = f"/api/uploads/{fname}"
+    att = {
+        "id": str(uuid.uuid4()),
+        "url": url,
+        "filename": name,
+        "size": len(contents),
+        "caption": caption or "",
+        "by": user["id"],
+        "by_name": user["name"],
+        "at": now_iso(),
+    }
+    await db.leads.update_one({"id": lid}, {"$push": {"attachments": att}})
+    return att
+
+@api.get("/leads/{lid}/attachments")
+async def list_attachments(lid: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    return lead.get("attachments") or []
+
+# -----------------------------------------------------------------------------
+# GST Invoice (PDF)
+# -----------------------------------------------------------------------------
+@api.get("/leads/{lid}/invoice")
+async def download_invoice(lid: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if lead.get("status") != "completed":
+        raise HTTPException(400, "Invoice available only for completed jobs")
+    if not lead.get("final_cost"):
+        raise HTTPException(400, "Set final_cost before generating invoice")
+
+    manager = await db.users.find_one({"id": lead.get("manager_id")}, {"_id": 0, "password_hash": 0}) if lead.get("manager_id") else None
+    technician = await db.users.find_one({"id": lead.get("technician_id")}, {"_id": 0, "password_hash": 0}) if lead.get("technician_id") else None
+
+    pdf_bytes = _build_invoice_pdf(lead, manager, technician)
+    return StreamingResponse(
+        io.BytesIO(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="GoRepair_Invoice_{lid[:8]}.pdf"'},
+    )
+
+
+def _build_invoice_pdf(lead: dict, manager: Optional[dict], technician: Optional[dict]) -> bytes:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import mm
+    from reportlab.lib import colors
+    from reportlab.pdfgen import canvas as pdfcanvas
+
+    buf = io.BytesIO()
+    c = pdfcanvas.Canvas(buf, pagesize=A4)
+    W, H = A4
+    OR = colors.HexColor("#FF5F1F")
+    INK = colors.HexColor("#0A0A0A")
+    MUTED = colors.HexColor("#71717A")
+
+    # Header band
+    c.setFillColor(INK); c.rect(0, H - 30 * mm, W, 30 * mm, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 22)
+    c.drawString(18 * mm, H - 15 * mm, "GO")
+    c.setFillColor(OR); c.rect(18 * mm + 14 * mm, H - 18 * mm, 5 * mm, 5 * mm, fill=1, stroke=0)
+    c.setFillColor(colors.white)
+    c.drawString(18 * mm + 22 * mm, H - 15 * mm, "REPAIR")
+    c.setFont("Helvetica", 9)
+    c.drawString(18 * mm, H - 22 * mm, "Tax Invoice (GST)")
+
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(W - 18 * mm, H - 12 * mm, f"Invoice #{lead['id'][:8].upper()}")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(W - 18 * mm, H - 18 * mm, f"Date: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
+    c.drawRightString(W - 18 * mm, H - 23 * mm, "GSTIN: 07AAACG0000Z1Z5")
+
+    # Billed to
+    y = H - 42 * mm
+    c.setFillColor(MUTED); c.setFont("Helvetica-Bold", 8)
+    c.drawString(18 * mm, y, "BILLED TO")
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 12)
+    c.drawString(18 * mm, y - 6 * mm, lead.get("customer_name", "—"))
+    c.setFont("Helvetica", 9)
+    c.drawString(18 * mm, y - 11 * mm, f"Phone: {lead.get('phone', '—')}")
+    addr = lead.get("address") or ""
+    c.drawString(18 * mm, y - 16 * mm, (addr[:70] + ("…" if len(addr) > 70 else "")))
+    c.drawString(18 * mm, y - 21 * mm, f"{lead.get('city', '')}")
+
+    # Service provider
+    c.setFillColor(MUTED); c.setFont("Helvetica-Bold", 8)
+    c.drawString(110 * mm, y, "SERVICED BY")
+    c.setFillColor(INK); c.setFont("Helvetica-Bold", 12)
+    c.drawString(110 * mm, y - 6 * mm, (technician or {}).get("name", "—"))
+    c.setFont("Helvetica", 9)
+    c.drawString(110 * mm, y - 11 * mm, f"Manager: {(manager or {}).get('name', '—')}")
+    c.drawString(110 * mm, y - 16 * mm, f"City: {(technician or {}).get('city', '—')}")
+
+    # Line items table
+    y = H - 80 * mm
+    c.setFillColor(colors.HexColor("#F4F4F5"))
+    c.rect(18 * mm, y - 8 * mm, W - 36 * mm, 8 * mm, fill=1, stroke=0)
+    c.setFillColor(MUTED); c.setFont("Helvetica-Bold", 8)
+    c.drawString(20 * mm, y - 5.5 * mm, "DESCRIPTION")
+    c.drawRightString(130 * mm, y - 5.5 * mm, "APPLIANCE")
+    c.drawRightString(W - 20 * mm, y - 5.5 * mm, "AMOUNT")
+
+    c.setFillColor(INK); c.setFont("Helvetica", 10)
+    c.drawString(20 * mm, y - 15 * mm, f"Repair service — {lead.get('issue','')[:50]}")
+    c.drawRightString(130 * mm, y - 15 * mm, lead.get("appliance_type", "—"))
+    subtotal = float(lead.get("final_cost") or 0.0)
+    c.drawRightString(W - 20 * mm, y - 15 * mm, f"₹ {subtotal:,.2f}")
+
+    # Totals (18% GST split 9% CGST + 9% SGST — as taxable value inclusive? We'll compute exclusive)
+    gst_rate = 0.18
+    taxable = round(subtotal / (1 + gst_rate), 2)
+    total_gst = round(subtotal - taxable, 2)
+    cgst = round(total_gst / 2, 2)
+    sgst = round(total_gst - cgst, 2)
+
+    ty = y - 28 * mm
+    c.setStrokeColor(colors.HexColor("#E4E4E7"))
+    c.line(120 * mm, ty + 4 * mm, W - 20 * mm, ty + 4 * mm)
+    c.setFont("Helvetica", 9); c.setFillColor(MUTED)
+    c.drawRightString(160 * mm, ty - 2 * mm, "Taxable value")
+    c.drawRightString(160 * mm, ty - 8 * mm, "CGST @ 9%")
+    c.drawRightString(160 * mm, ty - 14 * mm, "SGST @ 9%")
+    c.setFillColor(INK); c.setFont("Helvetica", 10)
+    c.drawRightString(W - 20 * mm, ty - 2 * mm, f"₹ {taxable:,.2f}")
+    c.drawRightString(W - 20 * mm, ty - 8 * mm, f"₹ {cgst:,.2f}")
+    c.drawRightString(W - 20 * mm, ty - 14 * mm, f"₹ {sgst:,.2f}")
+
+    c.setFillColor(OR); c.rect(120 * mm, ty - 24 * mm, W - 20 * mm - 120 * mm, 8 * mm, fill=1, stroke=0)
+    c.setFillColor(colors.white); c.setFont("Helvetica-Bold", 11)
+    c.drawRightString(160 * mm, ty - 21 * mm, "TOTAL")
+    c.drawRightString(W - 20 * mm, ty - 21 * mm, f"₹ {subtotal:,.2f}")
+
+    # Footer
+    c.setFillColor(MUTED); c.setFont("Helvetica", 8)
+    c.drawString(18 * mm, 20 * mm, "Thank you for choosing GO Repair. Payment is due on receipt.")
+    c.drawString(18 * mm, 16 * mm, "This is a computer-generated invoice and does not require a signature.")
+    c.drawRightString(W - 18 * mm, 16 * mm, "support@gorepair.in  ·  +91 9000 000 000")
+
+    c.showPage(); c.save()
+    return buf.getvalue()
+
+# -----------------------------------------------------------------------------
 # Seeding
 # -----------------------------------------------------------------------------
 async def seed():
@@ -875,6 +1059,8 @@ async def seed():
             })
 
 app.include_router(api)
+# Uploads must be under /api prefix so Kubernetes ingress routes them to the backend.
+app.mount("/api/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
 @app.on_event("startup")
 async def on_startup():

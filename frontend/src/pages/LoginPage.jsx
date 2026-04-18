@@ -42,8 +42,17 @@ export default function LoginPage() {
         />
         <div className="absolute inset-0 bg-gradient-to-br from-[#0a0a0a] via-[#0a0a0a]/80 to-transparent" />
         <div className="relative z-10 h-full flex flex-col justify-between p-10 text-white">
-          <div className="font-display font-black text-3xl tracking-tight">
-            G<span className="gr-logo-dot" />&nbsp;REPAIR
+          <div className="flex items-center gap-3">
+            <img
+              src="https://customer-assets.emergentagent.com/job_points-repair-net/artifacts/63eed0iz_image.png"
+              alt="GO Repair"
+              className="h-14 w-14 object-contain"
+              data-testid="login-hero-logo"
+            />
+            <div className="font-display font-black text-3xl tracking-tight leading-none">
+              <div>GO</div>
+              <div className="text-[#ff5f1f] -mt-0.5">REPAIR</div>
+            </div>
           </div>
           <div className="space-y-6">
             <div className="gr-overline text-[#ff5f1f]">OPERATIONS CONSOLE / v1.0</div>
@@ -65,8 +74,16 @@ export default function LoginPage() {
       {/* Right: form */}
       <div className="flex items-center justify-center p-6 sm:p-10">
         <div className="w-full max-w-md">
-          <div className="lg:hidden font-display font-black text-2xl tracking-tight mb-8">
-            G<span className="gr-logo-dot" />&nbsp;REPAIR
+          <div className="lg:hidden flex items-center gap-2 mb-8">
+            <img
+              src="https://customer-assets.emergentagent.com/job_points-repair-net/artifacts/63eed0iz_image.png"
+              alt="GO Repair"
+              className="h-10 w-10 object-contain"
+            />
+            <div className="font-display font-black text-2xl tracking-tight leading-none">
+              <div>GO</div>
+              <div className="text-[#ff5f1f] -mt-0.5">REPAIR</div>
+            </div>
           </div>
           <div className="gr-overline mb-2">SIGN IN</div>
           <h2 className="font-display font-black text-3xl tracking-tighter mb-6">Access your console</h2>
