@@ -1135,13 +1135,23 @@ async def rzp_create_order(body: RzpOrderIn, user: dict = Depends(require_roles(
         import razorpay
         c = razorpay.Client(auth=(kid, sec))
         order = c.order.create(order_payload)
+        # track expected amount for verify-step cross-check
+        await db.razorpay_orders.insert_one({"order_id": order["id"], "amount_inr": body.amount_inr, "manager_id": user["id"], "created_at": now_iso()})
         return {"mode": "live", "key_id": kid, "order": {"id": order["id"], "amount": order["amount"], "currency": order["currency"]}}
     # MOCK
-    return {"mode": "mock", "key_id": "rzp_test_MOCK", "order": {"id": f"order_MOCK_{uuid.uuid4().hex[:12]}", "amount": body.amount_inr * 100, "currency": "INR"}}
+    oid = f"order_MOCK_{uuid.uuid4().hex[:12]}"
+    await db.razorpay_orders.insert_one({"order_id": oid, "amount_inr": body.amount_inr, "manager_id": user["id"], "created_at": now_iso()})
+    return {"mode": "mock", "key_id": "rzp_test_MOCK", "order": {"id": oid, "amount": body.amount_inr * 100, "currency": "INR"}}
 
 @api.post("/wallet/razorpay/verify")
 async def rzp_verify(body: RzpVerifyIn, user: dict = Depends(require_roles("manager"))):
     kid, sec = _rzp_keys()
+    # Cross-check amount matches the order we created (prevents client tampering in mock mode)
+    order = await db.razorpay_orders.find_one({"order_id": body.razorpay_order_id, "manager_id": user["id"]})
+    if not order:
+        raise HTTPException(400, "Unknown or expired order")
+    if order["amount_inr"] != body.amount_inr:
+        raise HTTPException(400, "Amount mismatch with original order")
     if kid and body.razorpay_signature:
         import razorpay
         c = razorpay.Client(auth=(kid, sec))
@@ -1153,8 +1163,8 @@ async def rzp_verify(body: RzpVerifyIn, user: dict = Depends(require_roles("mana
             })
         except Exception as e:
             raise HTTPException(400, f"Signature verification failed: {e}")
-    # MOCK: no real signature check — just credit wallet
     txn = await _wallet_txn(user["id"], "recharge", body.amount_inr, f"Razorpay{' (mock)' if not kid else ''} order {body.razorpay_order_id}")
+    await db.razorpay_orders.delete_one({"order_id": body.razorpay_order_id})
     return {"ok": True, "mode": "live" if kid else "mock", "txn": txn}
 
 # -----------------------------------------------------------------------------
