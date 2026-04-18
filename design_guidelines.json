@@ -1,0 +1,142 @@
+{
+  "theme": "Light",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "brand_identity": {
+    "name": "GO Repair",
+    "domain": "Home Appliance Repair CRM (Ops-heavy)",
+    "vibe": "Objective, rigid, functional, high-trust, mechanical/industrial efficiency.",
+    "emotional_tone": "Utilitarian command center for dispatch and service tracking."
+  },
+  "typography": {
+    "font_families": {
+      "headings": "'Cabinet Grotesk', sans-serif",
+      "body": "'Chivo', sans-serif",
+      "mono": "'JetBrains Mono', monospace"
+    },
+    "hierarchy": {
+      "h1": "text-4xl sm:text-5xl font-black tracking-tighter leading-none text-neutral-900",
+      "h2": "text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900",
+      "h3": "text-xl sm:text-2xl font-bold tracking-tight text-neutral-900",
+      "h4": "text-lg sm:text-xl font-semibold text-neutral-800",
+      "body": "text-base font-normal text-neutral-700 leading-relaxed",
+      "small": "text-sm font-medium text-neutral-500",
+      "mono_data": "font-mono text-sm tracking-tight text-neutral-900",
+      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-neutral-500"
+    }
+  },
+  "colors": {
+    "primary": {
+      "DEFAULT": "#FF5F1F",
+      "hover": "#E04D14",
+      "foreground": "#FFFFFF"
+    },
+    "secondary": {
+      "DEFAULT": "#0A0A0A",
+      "hover": "#27272A",
+      "foreground": "#FFFFFF"
+    },
+    "background": {
+      "app": "#F5F5F5",
+      "surface": "#FFFFFF",
+      "sidebar": "#0A0A0A",
+      "sidebar_foreground": "#FFFFFF"
+    },
+    "accent": {
+      "blue": "#002FA7",
+      "yellow": "#FACC15",
+      "green": "#16A34A",
+      "red": "#DC2626"
+    },
+    "neutral": {
+      "50": "#FAFAFA",
+      "100": "#F4F4F5",
+      "200": "#E4E4E7",
+      "300": "#D4D4D8",
+      "400": "#A1A1AA",
+      "500": "#71717A",
+      "600": "#52525B",
+      "700": "#3F3F46",
+      "800": "#27272A",
+      "900": "#18181B"
+    },
+    "border": "#E4E4E7"
+  },
+  "layout_and_spacing": {
+    "container_padding": "p-6 sm:p-8",
+    "grid_gaps": "gap-4 sm:gap-6",
+    "border_radius": {
+      "surface": "rounded-sm",
+      "buttons": "rounded-sm",
+      "inputs": "rounded-sm",
+      "tags": "rounded-none"
+    },
+    "patterns": {
+      "dashboard_grid": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-4",
+      "sidebar": "fixed left-0 top-0 h-screen w-64 bg-secondary flex flex-col border-r border-neutral-800 z-40 transition-all duration-300",
+      "header": "sticky top-0 w-full h-16 bg-surface/90 backdrop-blur-xl border-b border-border flex items-center justify-between px-6 z-30"
+    }
+  },
+  "components": {
+    "cards": {
+      "default": "bg-surface border border-border p-5 rounded-sm shadow-none transition-all duration-200",
+      "hover": "hover:shadow-md hover:-translate-y-0.5 hover:border-neutral-300",
+      "metric_card": "flex flex-col gap-2 p-5 bg-surface border border-border border-l-4 border-l-primary"
+    },
+    "tables": {
+      "wrapper": "w-full overflow-x-auto border border-border bg-surface",
+      "header": "bg-neutral-50 border-b border-border text-left text-xs font-bold uppercase tracking-wider text-neutral-500 py-3 px-4",
+      "row": "border-b border-border hover:bg-neutral-50 transition-colors",
+      "cell": "py-3 px-4 text-sm text-neutral-800 whitespace-nowrap"
+    },
+    "badges": {
+      "pending": "px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold uppercase tracking-wide border border-yellow-200",
+      "in_progress": "px-2 py-1 bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wide border border-blue-200",
+      "completed": "px-2 py-1 bg-green-100 text-green-800 text-xs font-bold uppercase tracking-wide border border-green-200",
+      "cancelled": "px-2 py-1 bg-neutral-100 text-neutral-800 text-xs font-bold uppercase tracking-wide border border-neutral-200"
+    },
+    "buttons": {
+      "primary": "inline-flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground font-bold text-sm rounded-sm hover:bg-primary-hover transition-colors",
+      "outline": "inline-flex items-center justify-center px-4 py-2 border-2 border-secondary text-secondary font-bold text-sm rounded-sm hover:bg-secondary hover:text-secondary-foreground transition-colors",
+      "ghost": "inline-flex items-center justify-center px-4 py-2 text-neutral-600 font-bold text-sm hover:bg-neutral-100 hover:text-neutral-900 transition-colors"
+    },
+    "ai_panel": {
+      "container": "relative bg-surface border border-accent-blue/30 p-5 rounded-sm",
+      "indicator": "absolute -left-[1px] top-0 bottom-0 w-1 bg-accent-blue shadow-[0_0_8px_rgba(0,47,167,0.5)]"
+    }
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "style": "Regular for standard, Fill for active/selected states.",
+    "installation": "yarn add @phosphor-icons/react"
+  },
+  "media_and_assets": {
+    "logo_strategy": "Text-based logotype 'GO REPAIR' in Cabinet Grotesk Black, with a bright orange square (■) replacing the 'O'.",
+    "images": {
+      "technician_avatar_1": "https://images.unsplash.com/photo-1656354637194-8dc7670e6bcc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjByZXBhaXIlMjB0ZWNobmljaWFuJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
+      "technician_avatar_2": "https://images.unsplash.com/photo-1586447751596-6c2050a0d335?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwzfHxhcHBsaWFuY2UlMjByZXBhaXIlMjB0ZWNobmljaWFuJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
+      "brand_kit_tshirt": "https://images.unsplash.com/photo-1637531347055-4fa8aa80c111?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxvcmFuZ2UlMjBwb2xvJTIwc2hpcnR8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+      "brand_kit_diary": "https://images.unsplash.com/photo-1709988795057-a13a7a612046?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxub3RlYm9vayUyMGRpYXJ5JTIwYnJhbmRpbmd8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+      "hero_bg_login": "https://images.unsplash.com/photo-1768051579338-3dc694863efc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxob21lJTIwYXBwbGlhbmNlJTIwd2FzaGluZyUyMG1hY2hpbmUlMjByZXBhaXJ8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
+      "auth_hero_tool": "https://images.unsplash.com/photo-1580401410158-1f0b0a406762?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjB3YXNoaW5nJTIwbWFjaGluZSUyMHJlcGFpciUyMHRvb2xzfGVufDB8fHx8MTc3NjUzNTQ3MXww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "testing_requirements": {
+    "attributes": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case format (e.g., data-testid='login-submit-button', data-testid='assign-lead-button')."
+  },
+  "motion_and_interactions": {
+    "hover_states": "Crisp transformations. -translate-y-[2px] with shadow-md. Do not use soft blurs for hover.",
+    "focus_states": "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface",
+    "page_transitions": "Minimalist. Use opacity fade (duration-200) rather than heavy transforms for a fast, utilitarian feel."
+  },
+  "instructions_to_main_agent": [
+    "Implement pure HTML+Tailwind for foundational structural layouts; avoid Shadcn wrappers if they enforce padding/margins.",
+    "Use Shadcn UI for interactive components (Dropdowns, Dialogs, Select, Tabs) but strictly override the styles to match the 'Swiss Brutalist' aesthetic (sharp corners, 1px hard borders, no soft shadows on resting).",
+    "Use @phosphor-icons/react for all iconography to maintain technical precision.",
+    "Build the dashboard using a collapsible sidebar (left) and sticky header (top) layout.",
+    "Tables must be dense (py-2 px-3) and utilize zebra striping for scannability.",
+    "For the AI Smart-Assign feature, apply the `ai_panel` component style to give it a distinct visual hierarchy (glowing blue left border).",
+    "Ensure the Brand Kit store uses a neat bento/grid layout for physical products.",
+    "Add 'Cabinet Grotesk' and 'Chivo' via Google Fonts or Fontsource in the base HTML/CSS.",
+    "All forms and buttons must include data-testid attributes for E2E testing."
+  ]
+}
