@@ -1,89 +1,886 @@
-from fastapi import FastAPI, APIRouter
+"""GO Repair CRM - FastAPI backend
+Multi-role (super_admin/manager/technician) lead distribution + points wallet.
+"""
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
-
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+import os
+import uuid
+import logging
+import asyncio
+from datetime import datetime, timezone, timedelta
+from typing import Optional, List, Literal
 
-# Create the main app without a prefix
-app = FastAPI()
+import jwt
+import bcrypt
+from fastapi import FastAPI, APIRouter, HTTPException, Request, Response, Depends, Query
+from fastapi.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, EmailStr, Field
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+# -----------------------------------------------------------------------------
+# Config / DB
+# -----------------------------------------------------------------------------
+MONGO_URL = os.environ["MONGO_URL"]
+DB_NAME = os.environ["DB_NAME"]
+JWT_SECRET = os.environ["JWT_SECRET"]
+JWT_ALGO = "HS256"
+ADMIN_EMAIL = os.environ.get("ADMIN_EMAIL", "admin@gorepair.in").lower()
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "admin123")
 
+client = AsyncIOMotorClient(MONGO_URL)
+db = client[DB_NAME]
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-
-class StatusCheckCreate(BaseModel):
-    client_name: str
-
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
-
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
+app = FastAPI(title="GO Repair CRM")
+api = APIRouter(prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=["*"],
+    allow_credentials=False,  # using Bearer token, not cookies (frontend sends Authorization header)
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+log = logging.getLogger("gorepair")
+
+# -----------------------------------------------------------------------------
+# Helpers
+# -----------------------------------------------------------------------------
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode(), hashed.encode())
+    except Exception:
+        return False
+
+def create_token(user_id: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "type": "access",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGO)
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+def strip_mongo(doc: dict) -> dict:
+    if doc is None:
+        return doc
+    d = dict(doc)
+    d.pop("_id", None)
+    d.pop("password_hash", None)
+    return d
+
+async def get_current_user(request: Request) -> dict:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else None
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except jwt.InvalidTokenError:
+        raise HTTPException(401, "Invalid token")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0})
+    if not user or not user.get("active", True):
+        raise HTTPException(401, "User not found")
+    user.pop("password_hash", None)
+    return user
+
+def require_roles(*roles: str):
+    async def _dep(user: dict = Depends(get_current_user)) -> dict:
+        if user["role"] not in roles:
+            raise HTTPException(403, f"Requires role: {roles}")
+        return user
+    return _dep
+
+# -----------------------------------------------------------------------------
+# Models
+# -----------------------------------------------------------------------------
+Role = Literal["super_admin", "manager", "technician"]
+LeadStatus = Literal["new", "assigned_manager", "assigned_technician", "in_progress", "completed", "cancelled", "invalid"]
+LeadSource = Literal["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"]
+TxnType = Literal["credit", "debit", "refund", "recharge", "brand_kit"]
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: Role
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    skills: List[str] = Field(default_factory=list)
+    manager_id: Optional[str] = None  # for technician
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    skills: Optional[List[str]] = None
+    active: Optional[bool] = None
+    manager_id: Optional[str] = None
+
+class LeadCreate(BaseModel):
+    customer_name: str
+    phone: str
+    address: Optional[str] = None
+    city: str
+    appliance_type: str
+    issue: str
+    priority: Literal["low", "medium", "high"] = "medium"
+    source: LeadSource = "manual"
+
+class LeadAssignManager(BaseModel):
+    manager_id: str
+
+class LeadAssignTech(BaseModel):
+    technician_id: str
+
+class LeadStatusUpdate(BaseModel):
+    status: LeadStatus
+    note: Optional[str] = None
+    estimated_cost: Optional[float] = None
+    final_cost: Optional[float] = None
+
+class LeadNote(BaseModel):
+    text: str
+
+class LeadRating(BaseModel):
+    stars: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+class WalletAdjust(BaseModel):
+    manager_id: str
+    points: int = Field(gt=0)
+    reason: Optional[str] = None
+
+class WalletRecharge(BaseModel):
+    amount_inr: int = Field(gt=0)
+
+class SettingsUpdate(BaseModel):
+    cost_per_lead: Optional[int] = None
+    welcome_bonus_points: Optional[int] = None
+
+class BrandKitOrderIn(BaseModel):
+    items: List[dict]  # [{sku, qty}]
+
+# -----------------------------------------------------------------------------
+# Auth endpoints
+# -----------------------------------------------------------------------------
+@api.post("/auth/login")
+async def login(body: LoginIn):
+    email = body.email.lower()
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(body.password, user.get("password_hash", "")):
+        raise HTTPException(401, "Invalid email or password")
+    if not user.get("active", True):
+        raise HTTPException(403, "Account disabled")
+    token = create_token(user["id"], user["role"])
+    return {"token": token, "user": strip_mongo(user)}
+
+@api.get("/auth/me")
+async def me(user: dict = Depends(get_current_user)):
+    return user
+
+# -----------------------------------------------------------------------------
+# Users
+# -----------------------------------------------------------------------------
+@api.get("/users")
+async def list_users(
+    role: Optional[Role] = None,
+    manager_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q: dict = {}
+    if role:
+        q["role"] = role
+    if manager_id:
+        q["manager_id"] = manager_id
+    # Managers can only see their own technicians
+    if user["role"] == "manager":
+        if role and role != "technician":
+            raise HTTPException(403, "Managers can only list technicians")
+        q["role"] = "technician"
+        q["manager_id"] = user["id"]
+    elif user["role"] == "technician":
+        raise HTTPException(403, "Forbidden")
+    items = await db.users.find(q, {"_id": 0, "password_hash": 0}).to_list(500)
+    return items
+
+@api.post("/users")
+async def create_user(body: UserCreate, admin: dict = Depends(require_roles("super_admin", "manager"))):
+    # Managers can only create technicians under themselves
+    if admin["role"] == "manager":
+        if body.role != "technician":
+            raise HTTPException(403, "Managers can only create technicians")
+        body.manager_id = admin["id"]
+    email = body.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(400, "Email already in use")
+    uid = str(uuid.uuid4())
+    doc = {
+        "id": uid,
+        "email": email,
+        "password_hash": hash_password(body.password),
+        "name": body.name,
+        "role": body.role,
+        "phone": body.phone,
+        "city": body.city,
+        "skills": body.skills,
+        "manager_id": body.manager_id if body.role == "technician" else None,
+        "wallet_balance": 0 if body.role == "manager" else None,
+        "has_brand_kit": False if body.role == "manager" else None,
+        "rating": 5.0 if body.role == "technician" else None,
+        "jobs_completed": 0 if body.role == "technician" else None,
+        "active": True,
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(doc)
+    return strip_mongo(doc)
+
+@api.patch("/users/{uid}")
+async def update_user(uid: str, body: UserUpdate, admin: dict = Depends(require_roles("super_admin", "manager"))):
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(404, "User not found")
+    if admin["role"] == "manager":
+        if target.get("manager_id") != admin["id"] or target.get("role") != "technician":
+            raise HTTPException(403, "Not your technician")
+    update = {k: v for k, v in body.dict().items() if v is not None}
+    if update:
+        await db.users.update_one({"id": uid}, {"$set": update})
+    u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    return u
+
+# -----------------------------------------------------------------------------
+# Settings
+# -----------------------------------------------------------------------------
+DEFAULT_BRAND_KIT = [
+    {"sku": "tshirt", "name": "GO Repair T-Shirt (x3)", "price_points": 600,
+     "image": "https://images.unsplash.com/photo-1637531347055-4fa8aa80c111?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxvcmFuZ2UlMjBwb2xvJTIwc2hpcnR8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+     "desc": "Branded uniform for technicians. Pack of 3."},
+    {"sku": "billbook", "name": "Bill Book (GST Ready)", "price_points": 400,
+     "image": "https://images.unsplash.com/photo-1709988795057-a13a7a612046?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxub3RlYm9vayUyMGRpYXJ5JTIwYnJhbmRpbmd8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+     "desc": "100-page carbon-copy bill book with GST format."},
+    {"sku": "idcard", "name": "Technician ID Cards (x5)", "price_points": 300,
+     "image": "https://images.unsplash.com/photo-1637531347055-4fa8aa80c111?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxvcmFuZ2UlMjBwb2xvJTIwc2hpcnR8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+     "desc": "Photo ID with NFC verification tag."},
+    {"sku": "toolkit", "name": "Starter Tool Pouch", "price_points": 800,
+     "image": "https://images.unsplash.com/photo-1580401410158-1f0b0a406762?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjB3YXNoaW5nJTIwbWFjaGluZSUyMHJlcGFpciUyMHRvb2xzfGVufDB8fHx8MTc3NjUzNTQ3MXww&ixlib=rb-4.1.0&q=85",
+     "desc": "Branded pouch with essential hand tools."},
+    {"sku": "flyers", "name": "Marketing Flyers (500)", "price_points": 250,
+     "image": "https://images.unsplash.com/photo-1709988795057-a13a7a612046?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxub3RlYm9vayUyMGRpYXJ5JTIwYnJhbmRpbmd8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
+     "desc": "A5 local-market flyers for area distribution."},
+]
+
+async def get_settings() -> dict:
+    s = await db.settings.find_one({"id": "global"}, {"_id": 0})
+    if not s:
+        s = {
+            "id": "global",
+            "cost_per_lead": 200,
+            "welcome_bonus_points": 500,
+            "brand_kit_items": DEFAULT_BRAND_KIT,
+        }
+        await db.settings.insert_one(s)
+    if "brand_kit_items" not in s:
+        s["brand_kit_items"] = DEFAULT_BRAND_KIT
+    return s
+
+@api.get("/settings")
+async def read_settings(user: dict = Depends(get_current_user)):
+    return await get_settings()
+
+@api.put("/settings")
+async def update_settings(body: SettingsUpdate, admin: dict = Depends(require_roles("super_admin"))):
+    update = {k: v for k, v in body.dict().items() if v is not None}
+    if update:
+        await db.settings.update_one({"id": "global"}, {"$set": update}, upsert=True)
+    return await get_settings()
+
+# -----------------------------------------------------------------------------
+# Leads
+# -----------------------------------------------------------------------------
+@api.get("/leads")
+async def list_leads(
+    status: Optional[str] = None,
+    manager_id: Optional[str] = None,
+    technician_id: Optional[str] = None,
+    source: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q: dict = {}
+    if status: q["status"] = status
+    if source: q["source"] = source
+    if user["role"] == "super_admin":
+        if manager_id: q["manager_id"] = manager_id
+        if technician_id: q["technician_id"] = technician_id
+    elif user["role"] == "manager":
+        q["manager_id"] = user["id"]
+        if technician_id: q["technician_id"] = technician_id
+    else:  # technician
+        q["technician_id"] = user["id"]
+    leads = await db.leads.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return leads
+
+@api.post("/leads")
+async def create_lead(body: LeadCreate, admin: dict = Depends(require_roles("super_admin"))):
+    lid = str(uuid.uuid4())
+    doc = {
+        "id": lid,
+        "customer_name": body.customer_name,
+        "phone": body.phone,
+        "address": body.address,
+        "city": body.city,
+        "appliance_type": body.appliance_type,
+        "issue": body.issue,
+        "priority": body.priority,
+        "source": body.source,
+        "status": "new",
+        "manager_id": None,
+        "technician_id": None,
+        "cost_points": 0,
+        "estimated_cost": None,
+        "final_cost": None,
+        "rating": None,
+        "rating_comment": None,
+        "notes": [],
+        "created_at": now_iso(),
+        "assigned_manager_at": None,
+        "assigned_technician_at": None,
+        "completed_at": None,
+    }
+    await db.leads.insert_one(doc)
+    return strip_mongo(doc)
+
+@api.get("/leads/{lid}")
+async def get_lead(lid: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    return lead
+
+async def _wallet_txn(manager_id: str, type_: str, points: int, reason: str, lead_id: Optional[str] = None):
+    """Atomic-ish wallet update + ledger entry. points positive int; type decides sign."""
+    mgr = await db.users.find_one({"id": manager_id})
+    if not mgr or mgr.get("role") != "manager":
+        raise HTTPException(404, "Manager not found")
+    balance = mgr.get("wallet_balance", 0) or 0
+    delta = points if type_ in ("credit", "refund", "recharge") else -points
+    new_balance = balance + delta
+    if new_balance < 0:
+        raise HTTPException(400, f"Insufficient wallet balance ({balance} pts, need {points})")
+    await db.users.update_one({"id": manager_id}, {"$set": {"wallet_balance": new_balance}})
+    txn = {
+        "id": str(uuid.uuid4()),
+        "manager_id": manager_id,
+        "type": type_,
+        "points": points,
+        "delta": delta,
+        "balance_after": new_balance,
+        "reason": reason,
+        "lead_id": lead_id,
+        "created_at": now_iso(),
+    }
+    await db.transactions.insert_one(txn)
+    txn.pop("_id", None)
+    return txn
+
+@api.post("/leads/{lid}/assign-manager")
+async def assign_manager(lid: str, body: LeadAssignManager, admin: dict = Depends(require_roles("super_admin"))):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if lead.get("manager_id"):
+        raise HTTPException(400, "Lead already assigned to a manager")
+    settings = await get_settings()
+    cost = settings.get("cost_per_lead", 200)
+    await _wallet_txn(body.manager_id, "debit", cost, f"Lead purchase: {lead.get('customer_name')}", lid)
+    await db.leads.update_one(
+        {"id": lid},
+        {"$set": {
+            "manager_id": body.manager_id,
+            "status": "assigned_manager",
+            "cost_points": cost,
+            "assigned_manager_at": now_iso(),
+        }},
+    )
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+@api.post("/leads/{lid}/assign-technician")
+async def assign_technician(lid: str, body: LeadAssignTech, user: dict = Depends(require_roles("manager", "super_admin"))):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Not your lead")
+    tech = await db.users.find_one({"id": body.technician_id, "role": "technician"})
+    if not tech:
+        raise HTTPException(404, "Technician not found")
+    await db.leads.update_one(
+        {"id": lid},
+        {"$set": {
+            "technician_id": body.technician_id,
+            "status": "assigned_technician",
+            "assigned_technician_at": now_iso(),
+        }},
+    )
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+@api.post("/leads/{lid}/status")
+async def update_status(lid: str, body: LeadStatusUpdate, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Not your job")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Not your lead")
+    update = {"status": body.status}
+    if body.estimated_cost is not None:
+        update["estimated_cost"] = body.estimated_cost
+    if body.final_cost is not None:
+        update["final_cost"] = body.final_cost
+    if body.status == "completed":
+        update["completed_at"] = now_iso()
+        # bump tech stats
+        if lead.get("technician_id"):
+            await db.users.update_one(
+                {"id": lead["technician_id"]},
+                {"$inc": {"jobs_completed": 1}},
+            )
+    if body.note:
+        await db.leads.update_one(
+            {"id": lid},
+            {"$push": {"notes": {"id": str(uuid.uuid4()), "by": user["id"], "by_name": user["name"], "text": body.note, "at": now_iso()}}},
+        )
+    # Refund for invalid leads
+    if body.status == "invalid" and lead.get("manager_id") and not lead.get("refunded"):
+        refund = int((lead.get("cost_points") or 0) * 0.8)
+        if refund > 0:
+            await _wallet_txn(lead["manager_id"], "refund", refund, f"Invalid lead refund (80%): {lead.get('customer_name')}", lid)
+            update["refunded"] = True
+    await db.leads.update_one({"id": lid}, {"$set": update})
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+@api.post("/leads/{lid}/notes")
+async def add_note(lid: str, body: LeadNote, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    if user["role"] == "technician" and lead.get("technician_id") != user["id"]:
+        raise HTTPException(403, "Forbidden")
+    note = {"id": str(uuid.uuid4()), "by": user["id"], "by_name": user["name"], "text": body.text, "at": now_iso()}
+    await db.leads.update_one({"id": lid}, {"$push": {"notes": note}})
+    return note
+
+@api.post("/leads/{lid}/rating")
+async def rate_lead(lid: str, body: LeadRating, user: dict = Depends(require_roles("manager", "super_admin"))):
+    lead = await db.leads.find_one({"id": lid})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    await db.leads.update_one({"id": lid}, {"$set": {"rating": body.stars, "rating_comment": body.comment}})
+    # Update technician avg rating
+    if lead.get("technician_id"):
+        pipeline = [
+            {"$match": {"technician_id": lead["technician_id"], "rating": {"$ne": None}}},
+            {"$group": {"_id": None, "avg": {"$avg": "$rating"}}},
+        ]
+        res = await db.leads.aggregate(pipeline).to_list(1)
+        if res:
+            await db.users.update_one({"id": lead["technician_id"]}, {"$set": {"rating": round(res[0]["avg"], 2)}})
+    return await db.leads.find_one({"id": lid}, {"_id": 0})
+
+# -----------------------------------------------------------------------------
+# Wallet
+# -----------------------------------------------------------------------------
+@api.get("/wallet/me")
+async def wallet_me(user: dict = Depends(require_roles("manager"))):
+    return {"balance": user.get("wallet_balance", 0) or 0}
+
+@api.get("/wallet/transactions")
+async def wallet_txns(
+    manager_id: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q: dict = {}
+    if user["role"] == "manager":
+        q["manager_id"] = user["id"]
+    elif user["role"] == "super_admin":
+        if manager_id:
+            q["manager_id"] = manager_id
+    else:
+        raise HTTPException(403, "Forbidden")
+    txns = await db.transactions.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return txns
+
+@api.post("/wallet/credit")
+async def wallet_credit(body: WalletAdjust, admin: dict = Depends(require_roles("super_admin"))):
+    txn = await _wallet_txn(body.manager_id, "credit", body.points, body.reason or "Admin credit")
+    return txn
+
+@api.post("/wallet/debit")
+async def wallet_debit(body: WalletAdjust, admin: dict = Depends(require_roles("super_admin"))):
+    txn = await _wallet_txn(body.manager_id, "debit", body.points, body.reason or "Admin debit")
+    return txn
+
+@api.post("/wallet/recharge")
+async def wallet_recharge(body: WalletRecharge, user: dict = Depends(require_roles("manager"))):
+    # MOCKED recharge: ₹1 = 1 point. Razorpay integration planned for Phase 2.
+    points = body.amount_inr
+    txn = await _wallet_txn(user["id"], "recharge", points, f"Recharge ₹{body.amount_inr} (mock)")
+    return {"ok": True, "txn": txn, "mode": "mock"}
+
+# -----------------------------------------------------------------------------
+# Brand Kit
+# -----------------------------------------------------------------------------
+@api.get("/brand-kit/items")
+async def brand_kit_items(user: dict = Depends(get_current_user)):
+    s = await get_settings()
+    return s.get("brand_kit_items", DEFAULT_BRAND_KIT)
+
+@api.post("/brand-kit/order")
+async def order_brand_kit(body: BrandKitOrderIn, user: dict = Depends(require_roles("manager"))):
+    s = await get_settings()
+    catalog = {it["sku"]: it for it in s.get("brand_kit_items", DEFAULT_BRAND_KIT)}
+    total = 0
+    items = []
+    for it in body.items:
+        sku = it.get("sku")
+        qty = int(it.get("qty", 1))
+        if sku not in catalog or qty < 1:
+            raise HTTPException(400, f"Invalid item: {sku}")
+        price = catalog[sku]["price_points"]
+        total += price * qty
+        items.append({"sku": sku, "name": catalog[sku]["name"], "qty": qty, "price_points": price})
+    if total <= 0:
+        raise HTTPException(400, "Empty order")
+    await _wallet_txn(user["id"], "brand_kit", total, "Brand Kit order")
+    order = {
+        "id": str(uuid.uuid4()),
+        "manager_id": user["id"],
+        "items": items,
+        "total_points": total,
+        "status": "processing",
+        "created_at": now_iso(),
+    }
+    await db.brand_kit_orders.insert_one(order)
+    await db.users.update_one({"id": user["id"]}, {"$set": {"has_brand_kit": True}})
+    return strip_mongo(order)
+
+@api.get("/brand-kit/orders")
+async def list_brand_kit_orders(user: dict = Depends(get_current_user)):
+    q = {} if user["role"] == "super_admin" else {"manager_id": user["id"]}
+    orders = await db.brand_kit_orders.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return orders
+
+# -----------------------------------------------------------------------------
+# Analytics
+# -----------------------------------------------------------------------------
+@api.get("/analytics/overview")
+async def analytics_overview(user: dict = Depends(get_current_user)):
+    lead_match: dict = {}
+    if user["role"] == "manager":
+        lead_match["manager_id"] = user["id"]
+    elif user["role"] == "technician":
+        lead_match["technician_id"] = user["id"]
+    total = await db.leads.count_documents(lead_match)
+    completed = await db.leads.count_documents({**lead_match, "status": "completed"})
+    in_progress = await db.leads.count_documents({**lead_match, "status": {"$in": ["assigned_technician", "in_progress"]}})
+    cancelled = await db.leads.count_documents({**lead_match, "status": {"$in": ["cancelled", "invalid"]}})
+    new_leads = await db.leads.count_documents({**lead_match, "status": "new"})
+    revenue_pipe = [
+        {"$match": {**lead_match, "status": "completed", "final_cost": {"$ne": None}}},
+        {"$group": {"_id": None, "total": {"$sum": "$final_cost"}}},
+    ]
+    rev = await db.leads.aggregate(revenue_pipe).to_list(1)
+    revenue = rev[0]["total"] if rev else 0
+    # by source
+    src_pipe = [
+        {"$match": lead_match},
+        {"$group": {"_id": "$source", "count": {"$sum": 1},
+                    "completed": {"$sum": {"$cond": [{"$eq": ["$status", "completed"]}, 1, 0]}}}},
+    ]
+    sources = await db.leads.aggregate(src_pipe).to_list(20)
+    # points spent
+    points_spent = 0
+    if user["role"] == "manager":
+        pp = [
+            {"$match": {"manager_id": user["id"], "type": {"$in": ["debit", "brand_kit"]}}},
+            {"$group": {"_id": None, "total": {"$sum": "$points"}}},
+        ]
+        r = await db.transactions.aggregate(pp).to_list(1)
+        points_spent = r[0]["total"] if r else 0
+    return {
+        "total_leads": total,
+        "new_leads": new_leads,
+        "in_progress": in_progress,
+        "completed": completed,
+        "cancelled": cancelled,
+        "conversion_rate": round(completed / total * 100, 1) if total else 0,
+        "revenue": revenue,
+        "points_spent": points_spent,
+        "sources": [{"source": s["_id"], "count": s["count"], "completed": s["completed"]} for s in sources],
+    }
+
+@api.get("/analytics/technicians")
+async def analytics_technicians(user: dict = Depends(require_roles("super_admin", "manager"))):
+    q = {"role": "technician"}
+    if user["role"] == "manager":
+        q["manager_id"] = user["id"]
+    techs = await db.users.find(q, {"_id": 0, "password_hash": 0}).to_list(200)
+    out = []
+    for t in techs:
+        match = {"technician_id": t["id"]}
+        total = await db.leads.count_documents(match)
+        done = await db.leads.count_documents({**match, "status": "completed"})
+        out.append({
+            "id": t["id"],
+            "name": t["name"],
+            "city": t.get("city"),
+            "rating": t.get("rating", 5.0),
+            "jobs_completed": t.get("jobs_completed", 0),
+            "active_jobs": total - done,
+            "total_leads": total,
+        })
+    out.sort(key=lambda x: (-x["rating"], -x["jobs_completed"]))
+    return out
+
+# -----------------------------------------------------------------------------
+# AI Smart Assign (Claude Sonnet 4.5 via emergentintegrations)
+# -----------------------------------------------------------------------------
+@api.post("/leads/{lid}/ai-suggest")
+async def ai_suggest(lid: str, user: dict = Depends(require_roles("manager", "super_admin"))):
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead not found")
+    # candidate technicians
+    q = {"role": "technician", "active": True}
+    if user["role"] == "manager":
+        q["manager_id"] = user["id"]
+    techs = await db.users.find(q, {"_id": 0, "password_hash": 0}).to_list(100)
+    if not techs:
+        return {"suggestions": [], "reasoning": "No active technicians available."}
+    # Compact tech profile for the LLM
+    tech_list = [
+        {
+            "id": t["id"],
+            "name": t["name"],
+            "city": t.get("city"),
+            "skills": t.get("skills", []),
+            "rating": t.get("rating", 5.0),
+            "jobs_completed": t.get("jobs_completed", 0),
+        }
+        for t in techs
+    ]
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage
+        import json as _json
+        chat = LlmChat(
+            api_key=os.environ["EMERGENT_LLM_KEY"],
+            session_id=f"assign-{lid}",
+            system_message=(
+                "You are a dispatch optimizer for an appliance repair CRM in India. "
+                "Given a lead and technician list, return JSON ONLY (no prose) of the form "
+                '{"suggestions":[{"technician_id":"...","score":0-100,"reason":"short"}]}. '
+                "Rank by: city match, skill match (appliance type), rating, lower active workload. "
+                "Return top 3."
+            ),
+        ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+        prompt = (
+            f"LEAD: {_json.dumps({'city': lead.get('city'), 'appliance': lead.get('appliance_type'), 'issue': lead.get('issue'), 'priority': lead.get('priority')})}\n"
+            f"TECHNICIANS: {_json.dumps(tech_list)}\n"
+            "Return JSON only."
+        )
+        resp = await chat.send_message(UserMessage(text=prompt))
+        text = str(resp).strip()
+        if text.startswith("```"):
+            text = text.strip("`")
+            if text.lower().startswith("json"):
+                text = text[4:]
+            text = text.strip()
+        data = _json.loads(text)
+        # enrich with names
+        tmap = {t["id"]: t for t in tech_list}
+        enriched = []
+        for s in data.get("suggestions", [])[:3]:
+            tid = s.get("technician_id")
+            if tid in tmap:
+                enriched.append({
+                    "technician_id": tid,
+                    "name": tmap[tid]["name"],
+                    "city": tmap[tid].get("city"),
+                    "rating": tmap[tid].get("rating"),
+                    "score": s.get("score", 0),
+                    "reason": s.get("reason", ""),
+                })
+        return {"suggestions": enriched, "source": "claude-sonnet-4-5"}
+    except Exception as e:
+        log.warning(f"AI suggest failed, using heuristic: {e}")
+        # Fallback heuristic
+        scored = []
+        for t in tech_list:
+            score = 0
+            reasons = []
+            if t.get("city") and lead.get("city") and t["city"].lower() == lead["city"].lower():
+                score += 40; reasons.append("same city")
+            if lead.get("appliance_type") and any(lead["appliance_type"].lower() in (s or "").lower() for s in t.get("skills", [])):
+                score += 30; reasons.append("skill match")
+            score += int((t.get("rating", 5) or 5) * 4)
+            scored.append({
+                "technician_id": t["id"], "name": t["name"], "city": t.get("city"),
+                "rating": t.get("rating"), "score": score, "reason": ", ".join(reasons) or "general fit",
+            })
+        scored.sort(key=lambda x: -x["score"])
+        return {"suggestions": scored[:3], "source": "heuristic"}
+
+# -----------------------------------------------------------------------------
+# Seeding
+# -----------------------------------------------------------------------------
+async def seed():
+    # Indexes
+    await db.users.create_index("email", unique=True)
+    await db.users.create_index("role")
+    await db.leads.create_index("status")
+    await db.leads.create_index("manager_id")
+    await db.leads.create_index("technician_id")
+    await db.transactions.create_index("manager_id")
+
+    # Settings
+    await get_settings()
+
+    # Super admin
+    admin = await db.users.find_one({"email": ADMIN_EMAIL})
+    if not admin:
+        await db.users.insert_one({
+            "id": str(uuid.uuid4()),
+            "email": ADMIN_EMAIL,
+            "password_hash": hash_password(ADMIN_PASSWORD),
+            "name": "Super Admin",
+            "role": "super_admin",
+            "phone": "+91-9000000000",
+            "city": "Delhi",
+            "active": True,
+            "created_at": now_iso(),
+        })
+        log.info("Seeded super admin %s", ADMIN_EMAIL)
+    elif not verify_password(ADMIN_PASSWORD, admin.get("password_hash", "")):
+        await db.users.update_one({"email": ADMIN_EMAIL}, {"$set": {"password_hash": hash_password(ADMIN_PASSWORD)}})
+
+    # Demo managers
+    demo_managers = [
+        {"email": "rahul.manager@gorepair.in", "name": "Rahul Sharma", "city": "Delhi", "phone": "+91-9111111111"},
+        {"email": "priya.manager@gorepair.in", "name": "Priya Iyer", "city": "Mumbai", "phone": "+91-9222222222"},
+    ]
+    for m in demo_managers:
+        if not await db.users.find_one({"email": m["email"]}):
+            mid = str(uuid.uuid4())
+            await db.users.insert_one({
+                "id": mid,
+                "email": m["email"],
+                "password_hash": hash_password("manager123"),
+                "name": m["name"],
+                "role": "manager",
+                "phone": m["phone"],
+                "city": m["city"],
+                "wallet_balance": 2000,  # seed with balance
+                "has_brand_kit": False,
+                "active": True,
+                "created_at": now_iso(),
+            })
+            # seed recharge txn
+            await db.transactions.insert_one({
+                "id": str(uuid.uuid4()),
+                "manager_id": mid,
+                "type": "credit",
+                "points": 2000,
+                "delta": 2000,
+                "balance_after": 2000,
+                "reason": "Welcome bonus (seed)",
+                "lead_id": None,
+                "created_at": now_iso(),
+            })
+
+    mgrs = await db.users.find({"role": "manager"}).to_list(10)
+    mgr_by_city = {m["city"]: m for m in mgrs}
+
+    # Demo technicians
+    demo_techs = [
+        {"email": "amit.tech@gorepair.in", "name": "Amit Kumar", "city": "Delhi", "skills": ["AC", "Washing Machine"]},
+        {"email": "suresh.tech@gorepair.in", "name": "Suresh Patel", "city": "Delhi", "skills": ["Fridge", "Microwave"]},
+        {"email": "ravi.tech@gorepair.in", "name": "Ravi Verma", "city": "Mumbai", "skills": ["TV", "AC", "Washing Machine"]},
+    ]
+    for t in demo_techs:
+        if not await db.users.find_one({"email": t["email"]}):
+            mgr = mgr_by_city.get(t["city"]) or mgrs[0]
+            await db.users.insert_one({
+                "id": str(uuid.uuid4()),
+                "email": t["email"],
+                "password_hash": hash_password("tech123"),
+                "name": t["name"],
+                "role": "technician",
+                "phone": "+91-9333333333",
+                "city": t["city"],
+                "skills": t["skills"],
+                "manager_id": mgr["id"],
+                "rating": 4.5,
+                "jobs_completed": 0,
+                "active": True,
+                "created_at": now_iso(),
+            })
+
+    # Demo leads
+    if await db.leads.count_documents({}) == 0:
+        demo_leads = [
+            {"customer_name": "Neha Gupta", "phone": "9876500001", "address": "B-12 Lajpat Nagar", "city": "Delhi",
+             "appliance_type": "AC", "issue": "Not cooling, making noise", "priority": "high", "source": "facebook"},
+            {"customer_name": "Rohit Mehta", "phone": "9876500002", "address": "Andheri West", "city": "Mumbai",
+             "appliance_type": "Washing Machine", "issue": "Drum not rotating", "priority": "medium", "source": "google"},
+            {"customer_name": "Anjali Rao", "phone": "9876500003", "address": "Dwarka Sec-10", "city": "Delhi",
+             "appliance_type": "Fridge", "issue": "Freezer ice build-up", "priority": "low", "source": "website"},
+            {"customer_name": "Kiran Joshi", "phone": "9876500004", "address": "Bandra East", "city": "Mumbai",
+             "appliance_type": "TV", "issue": "Screen flickering", "priority": "medium", "source": "whatsapp"},
+            {"customer_name": "Vikram Desai", "phone": "9876500005", "address": "Saket", "city": "Delhi",
+             "appliance_type": "Microwave", "issue": "Not heating", "priority": "low", "source": "manual"},
+        ]
+        for ld in demo_leads:
+            await db.leads.insert_one({
+                "id": str(uuid.uuid4()),
+                **ld,
+                "status": "new",
+                "manager_id": None, "technician_id": None,
+                "cost_points": 0, "estimated_cost": None, "final_cost": None,
+                "rating": None, "rating_comment": None,
+                "notes": [], "created_at": now_iso(),
+                "assigned_manager_at": None, "assigned_technician_at": None, "completed_at": None,
+            })
+
+app.include_router(api)
+
+@app.on_event("startup")
+async def on_startup():
+    await seed()
+    log.info("GO Repair CRM ready")
 
 @app.on_event("shutdown")
-async def shutdown_db_client():
+async def on_shutdown():
     client.close()
