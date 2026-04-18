@@ -12,6 +12,8 @@ import BrandKitPage from "@/pages/BrandKitPage";
 import AnalyticsPage from "@/pages/AnalyticsPage";
 import SettingsPage from "@/pages/SettingsPage";
 import MyJobsPage from "@/pages/MyJobsPage";
+import MapPage from "@/pages/MapPage";
+import NotificationsPage from "@/pages/NotificationsPage";
 import Layout from "@/components/Layout";
 
 function ProtectedRoute({ children, roles }) {
@@ -40,6 +42,8 @@ export default function App() {
             <Route path="wallet" element={<ProtectedRoute roles={["manager", "super_admin"]}><WalletPage /></ProtectedRoute>} />
             <Route path="brand-kit" element={<ProtectedRoute roles={["manager"]}><BrandKitPage /></ProtectedRoute>} />
             <Route path="analytics" element={<AnalyticsPage />} />
+            <Route path="map" element={<MapPage />} />
+            <Route path="notifications" element={<NotificationsPage />} />
             <Route path="settings" element={<ProtectedRoute roles={["super_admin"]}><SettingsPage /></ProtectedRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

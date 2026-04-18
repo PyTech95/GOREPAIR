@@ -3,7 +3,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard, ListOrdered, Users, Wallet, ShoppingBag,
-  BarChart3, Settings, Wrench, LogOut, Menu, X
+  BarChart3, Settings, Wrench, LogOut, Menu, X, Map, Bell
 } from "lucide-react";
 
 const roleNav = {
@@ -12,20 +12,26 @@ const roleNav = {
     { to: "/leads", label: "Leads", icon: ListOrdered },
     { to: "/users", label: "Users", icon: Users },
     { to: "/wallet", label: "Wallets", icon: Wallet },
+    { to: "/map", label: "Live Map", icon: Map },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
+    { to: "/notifications", label: "Notifications", icon: Bell },
     { to: "/settings", label: "Settings", icon: Settings },
   ],
   manager: [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/leads", label: "My Leads", icon: ListOrdered },
     { to: "/users", label: "Technicians", icon: Users },
+    { to: "/map", label: "Live Map", icon: Map },
     { to: "/wallet", label: "Wallet", icon: Wallet },
     { to: "/brand-kit", label: "Brand Kit", icon: ShoppingBag },
     { to: "/analytics", label: "Analytics", icon: BarChart3 },
+    { to: "/notifications", label: "Notifications", icon: Bell },
   ],
   technician: [
     { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
     { to: "/my-jobs", label: "My Jobs", icon: Wrench },
+    { to: "/map", label: "Live Tracking", icon: Map },
+    { to: "/notifications", label: "Notifications", icon: Bell },
   ],
 };
 

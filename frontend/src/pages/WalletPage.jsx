@@ -2,7 +2,21 @@ import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Wallet, ArrowDownRight, ArrowUpRight, Zap } from "lucide-react";
+import { Wallet, ArrowDownRight, ArrowUpRight, Zap, CreditCard } from "lucide-react";
+
+let _rzpLoaded = null;
+function loadRazorpayScript() {
+  if (typeof window === "undefined") return Promise.reject();
+  if (window.Razorpay) return Promise.resolve();
+  if (_rzpLoaded) return _rzpLoaded;
+  _rzpLoaded = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = resolve; s.onerror = reject;
+    document.body.appendChild(s);
+  });
+  return _rzpLoaded;
+}
 
 export default function WalletPage() {
   const { user, refresh } = useAuth();
@@ -56,6 +70,55 @@ export default function WalletPage() {
     finally { setLoading(false); }
   };
 
+  const payWithRazorpay = async () => {
+    setLoading(true);
+    try {
+      const cfg = await api.get("/wallet/razorpay/config");
+      const { data: order } = await api.post("/wallet/razorpay/create-order", { amount_inr: Number(amount) });
+      // MOCK MODE: skip UPI checkout, verify directly
+      if (order.mode === "mock") {
+        const { data } = await api.post("/wallet/razorpay/verify", {
+          razorpay_order_id: order.order.id,
+          razorpay_payment_id: `pay_MOCK_${Date.now()}`,
+          amount_inr: Number(amount),
+        });
+        toast.success(`Paid via Razorpay (MOCK) — ${data.txn.points} pts added`);
+        setBalance(data.txn.balance_after);
+        await refresh(); await load();
+        return;
+      }
+      // LIVE mode
+      await loadRazorpayScript();
+      const options = {
+        key: cfg.data.key_id,
+        amount: order.order.amount,
+        currency: order.order.currency,
+        order_id: order.order.id,
+        name: "GO Repair",
+        description: `Wallet recharge — ${amount} pts`,
+        prefill: { name: user?.name, email: user?.email, contact: user?.phone || "" },
+        theme: { color: "#FF5F1F" },
+        handler: async (resp) => {
+          try {
+            const { data } = await api.post("/wallet/razorpay/verify", {
+              razorpay_order_id: resp.razorpay_order_id,
+              razorpay_payment_id: resp.razorpay_payment_id,
+              razorpay_signature: resp.razorpay_signature,
+              amount_inr: Number(amount),
+            });
+            toast.success(`Paid — ${data.txn.points} pts added`);
+            setBalance(data.txn.balance_after);
+            await refresh(); await load();
+          } catch (e) { toast.error(formatApiError(e)); }
+        },
+        modal: { ondismiss: () => toast.info("Payment cancelled") },
+      };
+      const rzp = new window.Razorpay(options);
+      rzp.open();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setLoading(false); }
+  };
+
   const adminAdjust = async (type) => {
     if (!adjust.manager_id || !adjust.points) return;
     try {
@@ -94,10 +157,14 @@ export default function WalletPage() {
             </div>
             <div className="flex gap-2">
               <input type="number" className="gr-input flex-1" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="recharge-amount" />
-              <button className="gr-btn gr-btn-primary" onClick={recharge} disabled={loading} data-testid="recharge-btn">
-                {loading ? "Processing…" : `Add ${amount} pts`}
+              <button className="gr-btn gr-btn-outline" onClick={recharge} disabled={loading} data-testid="recharge-btn">
+                Quick add
+              </button>
+              <button className="gr-btn gr-btn-primary" onClick={payWithRazorpay} disabled={loading} data-testid="razorpay-btn">
+                <CreditCard size={14} /> {loading ? "…" : "Pay via Razorpay"}
               </button>
             </div>
+            <div className="text-[11px] text-neutral-400 mt-2 font-mono">Razorpay: MOCK mode (no live keys set). Credits wallet directly for demo.</div>
           </div>
         </div>
       )}

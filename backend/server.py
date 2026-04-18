@@ -429,6 +429,15 @@ async def assign_manager(lid: str, body: LeadAssignManager, admin: dict = Depend
             "assigned_manager_at": now_iso(),
         }},
     )
+    # Notify manager
+    mgr = await db.users.find_one({"id": body.manager_id}, {"_id": 0, "password_hash": 0})
+    if mgr:
+        await send_notification(
+            "whatsapp", mgr.get("phone") or mgr["email"], "lead_assigned_manager",
+            {"manager_name": mgr["name"], "appliance": lead.get("appliance_type"),
+             "customer": lead.get("customer_name"), "city": lead.get("city"), "cost_points": cost},
+            user_id=mgr["id"], lead_id=lid,
+        )
     return await db.leads.find_one({"id": lid}, {"_id": 0})
 
 @api.post("/leads/{lid}/assign-technician")
@@ -448,6 +457,12 @@ async def assign_technician(lid: str, body: LeadAssignTech, user: dict = Depends
             "status": "assigned_technician",
             "assigned_technician_at": now_iso(),
         }},
+    )
+    await send_notification(
+        "whatsapp", tech.get("phone") or tech["email"], "lead_assigned_technician",
+        {"tech_name": tech["name"], "appliance": lead.get("appliance_type"),
+         "customer": lead.get("customer_name"), "city": lead.get("city"), "priority": lead.get("priority")},
+        user_id=tech["id"], lead_id=lid,
     )
     return await db.leads.find_one({"id": lid}, {"_id": 0})
 
@@ -485,6 +500,17 @@ async def update_status(lid: str, body: LeadStatusUpdate, user: dict = Depends(g
             await _wallet_txn(lead["manager_id"], "refund", refund, f"Invalid lead refund (80%): {lead.get('customer_name')}", lid)
             update["refunded"] = True
     await db.leads.update_one({"id": lid}, {"$set": update})
+    # Notify customer on status change (completed / cancelled / in_progress)
+    tech = await db.users.find_one({"id": lead.get("technician_id")}, {"_id": 0, "password_hash": 0}) if lead.get("technician_id") else None
+    if body.status in ("in_progress", "completed", "cancelled"):
+        tpl = "lead_completed_customer" if body.status == "completed" else "lead_status_customer"
+        await send_notification(
+            "sms", lead.get("phone") or "unknown", tpl,
+            {"customer": lead.get("customer_name"), "appliance": lead.get("appliance_type"),
+             "status": body.status.replace("_", " "), "tech_name": (tech or {}).get("name", "our technician"),
+             "final_cost": body.final_cost or lead.get("final_cost") or 0},
+            lead_id=lid,
+        )
     return await db.leads.find_one({"id": lid}, {"_id": 0})
 
 @api.post("/leads/{lid}/notes")
@@ -936,6 +962,200 @@ def _build_invoice_pdf(lead: dict, manager: Optional[dict], technician: Optional
 
     c.showPage(); c.save()
     return buf.getvalue()
+
+# -----------------------------------------------------------------------------
+# Notifications (MOCK — logs + stores to DB; swap provider via env later)
+# -----------------------------------------------------------------------------
+NOTIFY_LOG = logging.getLogger("gorepair.notify")
+
+async def send_notification(channel: str, to: str, template: str, ctx: dict, user_id: Optional[str] = None, lead_id: Optional[str] = None):
+    """Channel = sms | whatsapp | push. MOCKED: writes to notifications collection and logs."""
+    body = _render_template(template, ctx)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "channel": channel,
+        "to": to,
+        "template": template,
+        "body": body,
+        "status": "mocked",
+        "user_id": user_id,
+        "lead_id": lead_id,
+        "created_at": now_iso(),
+    }
+    await db.notifications.insert_one(doc)
+    NOTIFY_LOG.info(f"[NOTIFY:{channel}] to={to} :: {body}")
+    doc.pop("_id", None)
+    return doc
+
+TEMPLATES = {
+    "lead_assigned_manager": "Hi {manager_name}, a new {appliance} lead for {customer} ({city}) has been assigned to you on GO Repair. {cost_points} pts debited.",
+    "lead_assigned_technician": "Hi {tech_name}, you've been assigned a {appliance} job for {customer} at {city}. Priority: {priority}. Open the app to proceed.",
+    "lead_status_customer": "Hi {customer}, your {appliance} service with GO Repair is now {status}. Technician: {tech_name}. Track: gorepair.in",
+    "lead_completed_customer": "Hi {customer}, your {appliance} repair is completed. Final bill: ₹{final_cost}. Thank you for choosing GO Repair!",
+    "wallet_low": "GO Repair alert: wallet balance is low ({balance} pts). Recharge to keep receiving leads.",
+}
+
+def _render_template(key: str, ctx: dict) -> str:
+    tpl = TEMPLATES.get(key, key)
+    try:
+        return tpl.format(**ctx)
+    except Exception:
+        return tpl
+
+@api.get("/notifications")
+async def list_notifications(user: dict = Depends(get_current_user)):
+    q: dict = {}
+    if user["role"] != "super_admin":
+        q["$or"] = [{"user_id": user["id"]}, {"to": user.get("phone")}]
+    items = await db.notifications.find(q, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    return items
+
+# -----------------------------------------------------------------------------
+# GPS / Live technician tracking
+# -----------------------------------------------------------------------------
+class LocationIn(BaseModel):
+    lat: float
+    lng: float
+    accuracy: Optional[float] = None
+
+@api.post("/technicians/me/location")
+async def push_location(body: LocationIn, user: dict = Depends(require_roles("technician"))):
+    loc = {"lat": body.lat, "lng": body.lng, "accuracy": body.accuracy, "updated_at": now_iso()}
+    await db.users.update_one({"id": user["id"]}, {"$set": {"location": loc}})
+    return loc
+
+@api.get("/technicians/locations")
+async def technician_locations(user: dict = Depends(require_roles("super_admin", "manager"))):
+    q = {"role": "technician", "active": True}
+    if user["role"] == "manager":
+        q["manager_id"] = user["id"]
+    techs = await db.users.find(q, {"_id": 0, "password_hash": 0}).to_list(200)
+    out = []
+    for t in techs:
+        out.append({
+            "id": t["id"], "name": t["name"], "city": t.get("city"),
+            "phone": t.get("phone"), "rating": t.get("rating", 5.0),
+            "skills": t.get("skills", []),
+            "location": t.get("location"),
+        })
+    return out
+
+# -----------------------------------------------------------------------------
+# Bulk CSV import (leads)
+# -----------------------------------------------------------------------------
+@api.post("/leads/bulk-import")
+async def bulk_import_leads(file: UploadFile = File(...), admin: dict = Depends(require_roles("super_admin"))):
+    import csv as _csv
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(400, "CSV too large (max 5 MB)")
+    text = contents.decode("utf-8-sig", errors="ignore")
+    reader = _csv.reader(text.splitlines())
+    rows = list(reader)
+    if not rows:
+        raise HTTPException(400, "Empty CSV")
+    # Detect header
+    header = [h.strip().lower() for h in rows[0]]
+    expected = {"customer_name", "phone", "city", "address", "appliance_type", "issue", "priority", "source"}
+    has_header = expected.issubset(set(header))
+    data_rows = rows[1:] if has_header else rows
+    if has_header:
+        idx = {k: header.index(k) for k in header if k in expected}
+    else:
+        # Assumed order: customer_name,phone,city,address,appliance_type,issue,priority,source
+        order = ["customer_name", "phone", "city", "address", "appliance_type", "issue", "priority", "source"]
+        idx = {k: i for i, k in enumerate(order)}
+
+    allowed_priority = {"low", "medium", "high"}
+    allowed_source = {"website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"}
+
+    created, skipped, errors = 0, 0, []
+    docs = []
+    for rn, row in enumerate(data_rows, start=(2 if has_header else 1)):
+        if not row or all(not (c or "").strip() for c in row):
+            continue
+        try:
+            get = lambda k, d="": (row[idx[k]].strip() if idx.get(k, -1) < len(row) and row[idx[k]] else d)
+            name = get("customer_name"); phone = get("phone"); city = get("city")
+            if not name or not phone or not city:
+                skipped += 1; errors.append(f"Row {rn}: missing name/phone/city"); continue
+            priority = (get("priority", "medium") or "medium").lower()
+            if priority not in allowed_priority: priority = "medium"
+            source = (get("source", "manual") or "manual").lower()
+            if source not in allowed_source: source = "manual"
+            docs.append({
+                "id": str(uuid.uuid4()),
+                "customer_name": name, "phone": phone, "city": city,
+                "address": get("address") or None,
+                "appliance_type": get("appliance_type", "Other") or "Other",
+                "issue": get("issue") or "—",
+                "priority": priority, "source": source,
+                "status": "new",
+                "manager_id": None, "technician_id": None,
+                "cost_points": 0, "estimated_cost": None, "final_cost": None,
+                "rating": None, "rating_comment": None,
+                "notes": [], "attachments": [],
+                "created_at": now_iso(),
+                "assigned_manager_at": None, "assigned_technician_at": None, "completed_at": None,
+            })
+            created += 1
+        except Exception as e:
+            skipped += 1; errors.append(f"Row {rn}: {e}")
+    if docs:
+        await db.leads.insert_many(docs)
+    return {"created": created, "skipped": skipped, "errors": errors[:20]}
+
+# -----------------------------------------------------------------------------
+# Razorpay (real when keys present; otherwise MOCK)
+# -----------------------------------------------------------------------------
+class RzpOrderIn(BaseModel):
+    amount_inr: int = Field(gt=0, le=200000)
+
+class RzpVerifyIn(BaseModel):
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: Optional[str] = None
+    amount_inr: int
+
+def _rzp_keys():
+    kid = (os.environ.get("RAZORPAY_KEY_ID") or "").strip()
+    sec = (os.environ.get("RAZORPAY_KEY_SECRET") or "").strip()
+    return (kid, sec) if kid and sec else (None, None)
+
+@api.get("/wallet/razorpay/config")
+async def rzp_config(user: dict = Depends(require_roles("manager"))):
+    kid, _ = _rzp_keys()
+    return {"mode": "live" if kid else "mock", "key_id": kid or ""}
+
+@api.post("/wallet/razorpay/create-order")
+async def rzp_create_order(body: RzpOrderIn, user: dict = Depends(require_roles("manager"))):
+    kid, sec = _rzp_keys()
+    order_payload = {"amount": body.amount_inr * 100, "currency": "INR", "receipt": f"gr_{uuid.uuid4().hex[:10]}"}
+    if kid:
+        import razorpay
+        c = razorpay.Client(auth=(kid, sec))
+        order = c.order.create(order_payload)
+        return {"mode": "live", "key_id": kid, "order": {"id": order["id"], "amount": order["amount"], "currency": order["currency"]}}
+    # MOCK
+    return {"mode": "mock", "key_id": "rzp_test_MOCK", "order": {"id": f"order_MOCK_{uuid.uuid4().hex[:12]}", "amount": body.amount_inr * 100, "currency": "INR"}}
+
+@api.post("/wallet/razorpay/verify")
+async def rzp_verify(body: RzpVerifyIn, user: dict = Depends(require_roles("manager"))):
+    kid, sec = _rzp_keys()
+    if kid and body.razorpay_signature:
+        import razorpay
+        c = razorpay.Client(auth=(kid, sec))
+        try:
+            c.utility.verify_payment_signature({
+                "razorpay_order_id": body.razorpay_order_id,
+                "razorpay_payment_id": body.razorpay_payment_id,
+                "razorpay_signature": body.razorpay_signature,
+            })
+        except Exception as e:
+            raise HTTPException(400, f"Signature verification failed: {e}")
+    # MOCK: no real signature check — just credit wallet
+    txn = await _wallet_txn(user["id"], "recharge", body.amount_inr, f"Razorpay{' (mock)' if not kid else ''} order {body.razorpay_order_id}")
+    return {"ok": True, "mode": "live" if kid else "mock", "txn": txn}
 
 # -----------------------------------------------------------------------------
 # Seeding

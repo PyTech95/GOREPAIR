@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Plus, Search, Filter } from "lucide-react";
+import { Plus, Search, Filter, Upload } from "lucide-react";
 
 const APPLIANCES = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser", "Other"];
 const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"];
@@ -15,6 +15,7 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -46,9 +47,14 @@ export default function LeadsPage() {
           <p className="text-neutral-500 text-sm mt-1">{filtered.length} of {leads.length} leads</p>
         </div>
         {user?.role === "super_admin" && (
-          <button className="gr-btn gr-btn-primary" onClick={() => setShowCreate(true)} data-testid="create-lead-btn">
-            <Plus size={15} /> New lead
-          </button>
+          <div className="flex gap-2">
+            <button className="gr-btn gr-btn-outline" onClick={() => setShowImport(true)} data-testid="import-csv-btn">
+              <Upload size={15} /> Import CSV
+            </button>
+            <button className="gr-btn gr-btn-primary" onClick={() => setShowCreate(true)} data-testid="create-lead-btn">
+              <Plus size={15} /> New lead
+            </button>
+          </div>
         )}
       </div>
 
@@ -121,6 +127,73 @@ export default function LeadsPage() {
       </div>
 
       {showCreate && <CreateLeadDialog onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
+      {showImport && <ImportCsvDialog onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
+    </div>
+  );
+}
+
+function ImportCsvDialog({ onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) return toast.error("Pick a CSV file");
+    setBusy(true);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const token = localStorage.getItem("gr_token");
+      const res = await fetch(`${process.env.REACT_APP_BACKEND_URL}/api/leads/bulk-import`, {
+        method: "POST", headers: { Authorization: `Bearer ${token}` }, body: fd,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Import failed");
+      setResult(data);
+      toast.success(`Imported ${data.created} leads (${data.skipped} skipped)`);
+    } catch (err) { toast.error(err.message || "Import failed"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose} data-testid="import-csv-dialog">
+      <div className="bg-white w-full max-w-lg gr-sharp" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div className="font-display font-bold text-lg">Bulk import leads (CSV)</div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 text-sm">Close</button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          <div className="text-xs text-neutral-500 leading-relaxed">
+            Expected columns (header optional):<br />
+            <code className="font-mono bg-neutral-100 px-2 py-0.5 inline-block mt-1">customer_name, phone, city, address, appliance_type, issue, priority, source</code>
+          </div>
+          <label className="block border-2 border-dashed border-neutral-300 hover:border-[#ff5f1f] transition-colors p-8 text-center cursor-pointer" data-testid="csv-dropzone">
+            <Upload size={22} className="mx-auto mb-2 text-neutral-400" />
+            <div className="text-sm font-semibold">{file ? file.name : "Click to pick a .csv file"}</div>
+            {file && <div className="text-[11px] text-neutral-500 mt-1">{Math.round(file.size / 1024)} KB</div>}
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => setFile(e.target.files?.[0])} data-testid="csv-file-input" />
+          </label>
+          {result && (
+            <div className="gr-card p-3 text-sm bg-neutral-50">
+              <div><b className="text-green-600">{result.created}</b> created, <b className="text-red-600">{result.skipped}</b> skipped</div>
+              {result.errors?.length > 0 && (
+                <details className="mt-1"><summary className="text-xs text-neutral-500 cursor-pointer">Errors</summary>
+                  <ul className="text-[11px] font-mono text-neutral-500 mt-1 list-disc ml-4">{result.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+                </details>
+              )}
+            </div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button type="button" className="gr-btn gr-btn-ghost" onClick={onClose}>{result ? "Close" : "Cancel"}</button>
+            {!result && (
+              <button type="submit" disabled={busy} className="gr-btn gr-btn-primary" data-testid="csv-upload-btn">
+                {busy ? "Uploading…" : "Upload"}
+              </button>
+            )}
+            {result && (
+              <button type="button" className="gr-btn gr-btn-primary" onClick={onDone}>Done</button>
+            )}
+          </div>
+        </form>
+      </div>
     </div>
   );
 }
