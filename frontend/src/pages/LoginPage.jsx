@@ -131,14 +131,15 @@ export default function LoginPage() {
                   key={q.email}
                   type="button"
                   onClick={() => quickFill(q)}
-                  className="text-left px-3 py-2 border border-neutral-200 hover:border-[#ff5f1f] hover:bg-orange-50/40 transition-colors flex items-center justify-between"
+                  className="text-left px-3 py-2 border border-neutral-200 hover:border-[#ff5f1f] hover:bg-orange-50/40 transition-colors flex items-center justify-between gap-2"
                   data-testid={`quick-${q.label.toLowerCase().replace(/[^a-z]/g, "-")}`}
                 >
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-semibold text-xs">{q.label}</div>
-                    <div className="text-[11px] font-mono text-neutral-500">{q.email}</div>
+                    <div className="text-[11px] font-mono text-neutral-500 truncate">{q.email}</div>
+                    <div className="text-[11px] font-mono text-neutral-400">pw: <span className="text-neutral-600">{q.password}</span></div>
                   </div>
-                  <ArrowRight size={14} className="text-neutral-400" />
+                  <ArrowRight size={14} className="text-neutral-400 shrink-0" />
                 </button>
               ))}
             </div>
