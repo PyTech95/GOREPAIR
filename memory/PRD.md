@@ -13,6 +13,10 @@ Build a scalable SaaS CRM platform for a home appliance repair service company i
 - **Frontend** React 19 + React Router v7 + Tailwind. Swiss-brutalist aesthetic (Cabinet Grotesk + Chivo, Signal Orange #FF5F1F + Obsidian Black).
 - **Collections** users, leads, transactions, brand_kit_orders, settings.
 
+## Added (Feb 2026 — v1.3)
+- **Customer marketplace shell** — `/` is now the public Customer Landing page (hero, 9 appliance categories, trust band, "How it works"). Staff console moved to `/console/*`. New routes: `/services`, `/book/:sku`, `/customer/login`, `/customer/register`, `/my-bookings`, `/track/:bid`. Staff login at `/login` redirects to `/console`; customers and unauth users land on `/`.
+- **Admin/Manager password reset** — `POST /api/users/{uid}/reset-password` (body `{new_password}`, min 6 chars). Super admin can reset any non-customer staff user. Manager can reset only their own technicians. UsersPage shows a "Reset PW" button per row with a dialog (auto-generates a 10-char password, copy-to-clipboard on success). Customer passwords are excluded (they have a self-service flow).
+
 ## Added (Feb 2026 — v1.2)
 - **Razorpay wallet recharge** — `GET /api/wallet/razorpay/config`, `POST /api/wallet/razorpay/create-order`, `POST /api/wallet/razorpay/verify`. Operates in **MOCK mode** when `RAZORPAY_KEY_ID` is empty (credits wallet directly with order-amount cross-check), **LIVE mode** when keys are populated (uses razorpay-python SDK, opens checkout.razorpay.com modal, verifies HMAC signature).
 - **WhatsApp/SMS notifications (MOCKED)** — new `notifications` collection + `send_notification()` helper triggered by assign-manager, assign-technician, and status-change events. Templates: lead_assigned_manager, lead_assigned_technician, lead_status_customer, lead_completed_customer. `/api/notifications` endpoint + `/notifications` UI page show history. Swap to Twilio/Gupshup by replacing the helper body.

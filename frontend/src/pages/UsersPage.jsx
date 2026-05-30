@@ -2,15 +2,23 @@ import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Plus, Users as UsersIcon } from "lucide-react";
+import { Plus, Users as UsersIcon, KeyRound, Copy, Check } from "lucide-react";
 
 const SKILL_OPTIONS = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser"];
+
+function genPassword() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789";
+  let out = "";
+  for (let i = 0; i < 10; i++) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
 
 export default function UsersPage() {
   const { user } = useAuth();
   const [list, setList] = useState([]);
   const [tab, setTab] = useState(user?.role === "manager" ? "technician" : "manager");
   const [showAdd, setShowAdd] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);
 
   const load = async () => {
     try {
@@ -57,9 +65,9 @@ export default function UsersPage() {
           <table className="gr-table">
             <thead><tr><th>Name</th><th>Email</th><th>City</th><th>Phone</th>
               {tab === "manager" ? <th>Wallet</th> : <><th>Skills</th><th>Rating</th><th>Jobs</th></>}
-              <th>Status</th></tr></thead>
+              <th>Status</th><th className="text-right">Actions</th></tr></thead>
             <tbody>
-              {list.length === 0 && <tr><td colSpan={8} className="text-center py-10 text-neutral-400"><UsersIcon className="mx-auto mb-2 text-neutral-300" /> No users</td></tr>}
+              {list.length === 0 && <tr><td colSpan={9} className="text-center py-10 text-neutral-400"><UsersIcon className="mx-auto mb-2 text-neutral-300" /> No users</td></tr>}
               {list.map((u) => (
                 <tr key={u.id} data-testid={`user-row-${u.id}`}>
                   <td className="font-semibold">{u.name}</td>
@@ -76,6 +84,16 @@ export default function UsersPage() {
                     </>
                   )}
                   <td>{u.active ? <span className="gr-badge completed">Active</span> : <span className="gr-badge cancelled">Off</span>}</td>
+                  <td className="text-right">
+                    <button
+                      onClick={() => setResetTarget(u)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold border border-neutral-200 hover:border-[#ff5f1f] hover:bg-orange-50 transition-colors"
+                      data-testid={`reset-pw-btn-${u.id}`}
+                      title="Reset password"
+                    >
+                      <KeyRound size={12} /> Reset PW
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -88,6 +106,106 @@ export default function UsersPage() {
         onClose={() => setShowAdd(false)}
         onCreated={() => { setShowAdd(false); load(); }}
       />}
+
+      {resetTarget && <ResetPasswordDialog
+        target={resetTarget}
+        onClose={() => setResetTarget(null)}
+      />}
+    </div>
+  );
+}
+
+function ResetPasswordDialog({ target, onClose }) {
+  const [pw, setPw] = useState(genPassword());
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (pw.length < 6) { toast.error("Password must be at least 6 characters"); return; }
+    setSaving(true);
+    try {
+      await api.post(`/users/${target.id}/reset-password`, { new_password: pw });
+      setDone(true);
+      toast.success(`Password reset for ${target.name}`);
+    } catch (err) { toast.error(formatApiError(err)); }
+    finally { setSaving(false); }
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(pw); setCopied(true); setTimeout(() => setCopied(false), 1500); }
+    catch { toast.error("Couldn't copy — select & copy manually"); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose} data-testid="reset-pw-dialog">
+      <div className="bg-white w-full max-w-md gr-sharp" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <div className="gr-overline">Reset password</div>
+            <div className="font-display font-bold text-lg mt-0.5">{target.name}</div>
+            <div className="text-xs font-mono text-neutral-500 capitalize">{target.role?.replace("_", " ")} · {target.email}</div>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 text-sm">Close</button>
+        </div>
+
+        {!done ? (
+          <form onSubmit={submit} className="p-5 space-y-4">
+            <div>
+              <label className="gr-label">New password</label>
+              <div className="flex gap-2">
+                <input
+                  required
+                  type="text"
+                  minLength={6}
+                  className="gr-input font-mono"
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  data-testid="reset-pw-input"
+                />
+                <button type="button" onClick={() => setPw(genPassword())}
+                  className="gr-btn gr-btn-outline text-xs whitespace-nowrap"
+                  data-testid="reset-pw-generate">
+                  Generate
+                </button>
+              </div>
+              <div className="text-[11px] text-neutral-500 mt-1">Min 6 chars. Share this with the user securely.</div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="gr-btn gr-btn-ghost" onClick={onClose}>Cancel</button>
+              <button type="submit" disabled={saving} className="gr-btn gr-btn-primary" data-testid="reset-pw-submit">
+                {saving ? "Resetting…" : "Reset password"}
+              </button>
+            </div>
+          </form>
+        ) : (
+          <div className="p-5 space-y-4" data-testid="reset-pw-success">
+            <div className="bg-green-50 border border-green-200 p-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-green-700">Password updated</div>
+              <div className="text-sm text-neutral-700 mt-1">Share these credentials with <b>{target.name}</b>:</div>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <div className="gr-label">Email</div>
+                <div className="font-mono text-sm bg-neutral-50 border border-neutral-200 px-3 py-2">{target.email}</div>
+              </div>
+              <div>
+                <div className="gr-label">New password</div>
+                <div className="flex items-center gap-2">
+                  <div className="font-mono text-sm bg-neutral-50 border border-neutral-200 px-3 py-2 flex-1 select-all">{pw}</div>
+                  <button onClick={copy} className="gr-btn gr-btn-outline text-xs" data-testid="reset-pw-copy">
+                    {copied ? <><Check size={12} /> Copied</> : <><Copy size={12} /> Copy</>}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={onClose} className="gr-btn gr-btn-primary" data-testid="reset-pw-done">Done</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

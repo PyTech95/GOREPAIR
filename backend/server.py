@@ -144,6 +144,9 @@ class UserUpdate(BaseModel):
     active: Optional[bool] = None
     manager_id: Optional[str] = None
 
+class PasswordResetIn(BaseModel):
+    new_password: str = Field(..., min_length=6, max_length=64)
+
 class LeadCreate(BaseModel):
     customer_name: str
     phone: str
@@ -277,6 +280,27 @@ async def update_user(uid: str, body: UserUpdate, admin: dict = Depends(require_
         await db.users.update_one({"id": uid}, {"$set": update})
     u = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
     return u
+
+@api.post("/users/{uid}/reset-password")
+async def reset_user_password(uid: str, body: PasswordResetIn, admin: dict = Depends(require_roles("super_admin", "manager"))):
+    target = await db.users.find_one({"id": uid})
+    if not target:
+        raise HTTPException(404, "User not found")
+    # Customers must use their own self-service reset flow (not this admin tool)
+    if target.get("role") == "customer":
+        raise HTTPException(403, "Cannot reset customer passwords from staff console")
+    # Managers can only reset their own technicians
+    if admin["role"] == "manager":
+        if target.get("role") != "technician" or target.get("manager_id") != admin["id"]:
+            raise HTTPException(403, "Not your technician")
+    # Block manager from resetting another manager / super_admin
+    if admin["role"] == "manager" and target.get("role") in ("manager", "super_admin"):
+        raise HTTPException(403, "Forbidden")
+    await db.users.update_one(
+        {"id": uid},
+        {"$set": {"password_hash": hash_password(body.new_password)}}
+    )
+    return {"ok": True, "user_id": uid, "email": target.get("email")}
 
 # -----------------------------------------------------------------------------
 # Settings
