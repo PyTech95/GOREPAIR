@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Plus, Search, Filter, Upload } from "lucide-react";
+import { Plus, Search, Filter, Upload, FileText } from "lucide-react";
 
 const APPLIANCES = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser", "Other"];
 const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"];
@@ -46,13 +46,15 @@ export default function LeadsPage() {
           <h1 className="font-display font-black text-4xl tracking-tighter mt-1">Leads</h1>
           <p className="text-neutral-500 text-sm mt-1">{filtered.length} of {leads.length} leads</p>
         </div>
-        {user?.role === "super_admin" && (
+        {(user?.role === "super_admin" || user?.role === "manager") && (
           <div className="flex gap-2">
-            <button className="gr-btn gr-btn-outline" onClick={() => setShowImport(true)} data-testid="import-csv-btn">
-              <Upload size={15} /> Import CSV
-            </button>
+            {user?.role === "super_admin" && (
+              <button className="gr-btn gr-btn-outline" onClick={() => setShowImport(true)} data-testid="import-csv-btn">
+                <Upload size={15} /> Import CSV
+              </button>
+            )}
             <button className="gr-btn gr-btn-primary" onClick={() => setShowCreate(true)} data-testid="create-lead-btn">
-              <Plus size={15} /> New lead
+              <Plus size={15} /> {user?.role === "manager" ? "New job" : "New lead"}
             </button>
           </div>
         )}
@@ -115,9 +117,16 @@ export default function LeadsPage() {
                   <td><span className={`gr-badge ${l.status}`}>{l.status.replace("_", " ")}</span></td>
                   <td className="text-neutral-500 text-xs">{new Date(l.created_at).toLocaleDateString("en-IN")}</td>
                   <td>
-                    <Link to={`/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
-                      Open →
-                    </Link>
+                    <div className="flex items-center gap-2">
+                      {l.status === "completed" && l.final_cost && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#16a34a] px-1.5 py-0.5 border border-green-200 bg-green-50" title="GST invoice ready">
+                          <FileText size={10} /> Invoice
+                        </span>
+                      )}
+                      <Link to={`/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
+                        Open →
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

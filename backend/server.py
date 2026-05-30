@@ -344,8 +344,10 @@ async def list_leads(
     return leads
 
 @api.post("/leads")
-async def create_lead(body: LeadCreate, admin: dict = Depends(require_roles("super_admin"))):
+async def create_lead(body: LeadCreate, user: dict = Depends(require_roles("super_admin", "manager"))):
     lid = str(uuid.uuid4())
+    # When a manager creates a lead, it's a walk-in / direct customer — auto-assign to them at 0 cost.
+    is_manager_walkin = (user["role"] == "manager")
     doc = {
         "id": lid,
         "customer_name": body.customer_name,
@@ -356,8 +358,8 @@ async def create_lead(body: LeadCreate, admin: dict = Depends(require_roles("sup
         "issue": body.issue,
         "priority": body.priority,
         "source": body.source,
-        "status": "new",
-        "manager_id": None,
+        "status": "assigned_manager" if is_manager_walkin else "new",
+        "manager_id": user["id"] if is_manager_walkin else None,
         "technician_id": None,
         "cost_points": 0,
         "estimated_cost": None,
@@ -365,8 +367,9 @@ async def create_lead(body: LeadCreate, admin: dict = Depends(require_roles("sup
         "rating": None,
         "rating_comment": None,
         "notes": [],
+        "attachments": [],
         "created_at": now_iso(),
-        "assigned_manager_at": None,
+        "assigned_manager_at": now_iso() if is_manager_walkin else None,
         "assigned_technician_at": None,
         "completed_at": None,
     }
@@ -1284,9 +1287,42 @@ async def seed():
                 "manager_id": None, "technician_id": None,
                 "cost_points": 0, "estimated_cost": None, "final_cost": None,
                 "rating": None, "rating_comment": None,
-                "notes": [], "created_at": now_iso(),
+                "notes": [], "attachments": [],
+                "created_at": now_iso(),
                 "assigned_manager_at": None, "assigned_technician_at": None, "completed_at": None,
             })
+
+    # Ensure at least one COMPLETED demo lead exists so the Invoice button is visible immediately.
+    if await db.leads.count_documents({"status": "completed", "final_cost": {"$ne": None}}) == 0:
+        delhi_mgr = next((m for m in mgrs if m.get("city") == "Delhi"), mgrs[0] if mgrs else None)
+        delhi_tech = await db.users.find_one({"role": "technician", "city": "Delhi"})
+        if delhi_mgr and delhi_tech:
+            now = now_iso()
+            completed_lead = {
+                "id": str(uuid.uuid4()),
+                "customer_name": "Pooja Bansal", "phone": "9876500099",
+                "address": "C-44 Greater Kailash 2", "city": "Delhi",
+                "appliance_type": "AC", "issue": "Compressor replacement and gas refill",
+                "priority": "high", "source": "google",
+                "status": "completed",
+                "manager_id": delhi_mgr["id"],
+                "technician_id": delhi_tech["id"],
+                "cost_points": 200,
+                "estimated_cost": 3000.0, "final_cost": 3500.0,
+                "rating": 5, "rating_comment": "Quick and professional service.",
+                "notes": [
+                    {"id": str(uuid.uuid4()), "by": delhi_tech["id"], "by_name": delhi_tech["name"],
+                     "text": "Replaced compressor and refilled gas. Cooling now normal.", "at": now},
+                ],
+                "attachments": [],
+                "created_at": now,
+                "assigned_manager_at": now,
+                "assigned_technician_at": now,
+                "completed_at": now,
+            }
+            await db.leads.insert_one(completed_lead)
+            # bump tech jobs_completed
+            await db.users.update_one({"id": delhi_tech["id"]}, {"$inc": {"jobs_completed": 1}})
 
 app.include_router(api)
 # Uploads must be under /api prefix so Kubernetes ingress routes them to the backend.
