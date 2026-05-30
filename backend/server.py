@@ -429,11 +429,12 @@ async def _wallet_txn(manager_id: str, type_: str, points: int, reason: str, lea
 class LeadBulkAssign(BaseModel):
     lead_ids: List[str] = Field(min_length=1, max_length=200)
     manager_id: str
+    cost_per_lead: Optional[int] = Field(default=None, ge=0, le=100000)  # admin override
 
 @api.post("/leads/bulk-assign-manager")
 async def bulk_assign_manager(body: LeadBulkAssign, admin: dict = Depends(require_roles("super_admin"))):
     settings = await get_settings()
-    cost_per = settings.get("cost_per_lead", 200)
+    cost_per = body.cost_per_lead if body.cost_per_lead is not None else settings.get("cost_per_lead", 200)
     # Validate manager
     mgr = await db.users.find_one({"id": body.manager_id, "role": "manager"})
     if not mgr:
@@ -473,7 +474,7 @@ async def bulk_assign_manager(body: LeadBulkAssign, admin: dict = Depends(requir
         )
         assigned.append(lead["id"])
     skipped = [lid for lid in body.lead_ids if lid not in assigned]
-    return {"assigned": len(assigned), "skipped": len(skipped), "assigned_ids": assigned, "skipped_ids": skipped, "total_debited": cost_per * len(assigned)}
+    return {"assigned": len(assigned), "skipped": len(skipped), "assigned_ids": assigned, "skipped_ids": skipped, "total_debited": cost_per * len(assigned), "cost_per_lead": cost_per}
 
 @api.post("/leads/{lid}/assign-manager")
 async def assign_manager(lid: str, body: LeadAssignManager, admin: dict = Depends(require_roles("super_admin"))):

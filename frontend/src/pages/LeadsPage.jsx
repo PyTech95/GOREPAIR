@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Plus, Search, Filter, Upload, FileText, Users as UsersIcon, CheckSquare, Square, X } from "lucide-react";
+import { Plus, Search, Filter, Upload, FileText, Users as UsersIcon, CheckSquare, Square, X, Coins, Lock } from "lucide-react";
 
 const APPLIANCES = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser", "Other"];
 const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"];
@@ -12,6 +12,7 @@ export default function LeadsPage() {
   const { user } = useAuth();
   const [leads, setLeads] = useState([]);
   const [cities, setCities] = useState([]);
+  const [settings, setSettings] = useState(null);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
@@ -40,6 +41,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     api.get("/leads/cities").then((r) => setCities(r.data)).catch(() => {});
+    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
   }, []);
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter, sourceFilter, cityFilter]);
@@ -52,6 +54,7 @@ export default function LeadsPage() {
 
   // Only unassigned leads can be bulk-assigned to a manager
   const selectableIds = filtered.filter((l) => !l.manager_id).map((l) => l.id);
+  const unassignedCount = leads.filter((l) => !l.manager_id).length;
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
   const toggleAll = () => {
     if (allSelected) setSelected(new Set());
@@ -65,6 +68,7 @@ export default function LeadsPage() {
     });
   };
   const clearSelection = () => setSelected(new Set());
+  const showOnlyUnassigned = () => setStatusFilter("new");
 
   return (
     <div className="space-y-6" data-testid="leads-page">
@@ -72,10 +76,37 @@ export default function LeadsPage() {
         <div>
           <div className="gr-overline">Pipeline</div>
           <h1 className="font-display font-black text-4xl tracking-tighter mt-1">Leads</h1>
-          <p className="text-neutral-500 text-sm mt-1">{filtered.length} of {leads.length} leads</p>
+          <p className="text-neutral-500 text-sm mt-1">
+            {filtered.length} of {leads.length} leads
+            {isAdmin && (
+              <>
+                {" · "}
+                <button
+                  onClick={showOnlyUnassigned}
+                  className="text-[#ff5f1f] font-semibold hover:underline"
+                  data-testid="show-unassigned-link"
+                >
+                  {unassignedCount} unassigned
+                </button>
+              </>
+            )}
+          </p>
         </div>
         {(user?.role === "super_admin" || user?.role === "manager") && (
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {isAdmin && settings && (
+              <Link
+                to="/settings"
+                className="hidden sm:flex items-center gap-1.5 px-3 py-2 border border-neutral-200 hover:border-[#ff5f1f] transition-colors gr-sharp"
+                title="Configure default cost per lead"
+                data-testid="cost-per-lead-pill"
+              >
+                <Coins size={13} className="text-[#ff5f1f]" />
+                <span className="text-[11px] font-mono uppercase tracking-wider text-neutral-500">Cost/lead</span>
+                <span className="font-bold text-sm">{settings.cost_per_lead}</span>
+                <span className="text-[10px] text-neutral-400">pts</span>
+              </Link>
+            )}
             {user?.role === "super_admin" && (
               <button className="gr-btn gr-btn-outline" onClick={() => setShowImport(true)} data-testid="import-csv-btn">
                 <Upload size={15} /> Import CSV
@@ -124,6 +155,17 @@ export default function LeadsPage() {
         </div>
       </div>
 
+      {isAdmin && !loading && filtered.length > 0 && selectableIds.length === 0 && (
+        <div className="gr-card flex items-center gap-3 border-l-4 border-l-[#facc15] bg-yellow-50/40" data-testid="no-unassigned-banner">
+          <Lock size={16} className="text-yellow-700" />
+          <div className="flex-1 text-sm">
+            <span className="font-semibold">All leads in view are already assigned.</span>{" "}
+            <span className="text-neutral-600">Use the status filter to see new (unassigned) leads, or </span>
+            <button onClick={showOnlyUnassigned} className="text-[#ff5f1f] font-semibold hover:underline">switch to unassigned only</button>.
+          </div>
+        </div>
+      )}
+
       <div className="gr-card p-0 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="gr-table">
@@ -161,7 +203,12 @@ export default function LeadsPage() {
                             {isSel ? <CheckSquare size={16} className="text-[#ff5f1f]" /> : <Square size={16} className="text-neutral-400 hover:text-[#ff5f1f]" />}
                           </button>
                         ) : (
-                          <span className="text-neutral-300 text-[10px] font-mono">—</span>
+                          <span
+                            className="inline-flex items-center justify-center w-4 h-4 text-neutral-300"
+                            title="Already assigned — cannot bulk-reassign"
+                          >
+                            <Lock size={12} />
+                          </span>
                         )}
                       </td>
                     )}
@@ -232,28 +279,32 @@ function BulkAssignDialog({ ids, onClose, onDone }) {
   const [managers, setManagers] = useState([]);
   const [pick, setPick] = useState("");
   const [settings, setSettings] = useState(null);
+  const [costPer, setCostPer] = useState(200);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     api.get("/users", { params: { role: "manager" } }).then((r) => setManagers(r.data)).catch(() => {});
-    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+    api.get("/settings").then((r) => { setSettings(r.data); setCostPer(r.data.cost_per_lead ?? 200); }).catch(() => {});
   }, []);
 
-  const costPer = settings?.cost_per_lead ?? 200;
-  const totalCost = ids.length * costPer;
+  const totalCost = ids.length * (Number(costPer) || 0);
   const picked = managers.find((m) => m.id === pick);
   const balance = picked?.wallet_balance ?? 0;
   const insufficient = picked && balance < totalCost;
+  const defaultCost = settings?.cost_per_lead ?? 200;
+  const isCustom = Number(costPer) !== defaultCost;
 
   const submit = async () => {
     if (!pick) return toast.error("Pick a manager");
     setBusy(true);
     try {
-      const { data } = await api.post("/leads/bulk-assign-manager", { lead_ids: ids, manager_id: pick });
+      const payload = { lead_ids: ids, manager_id: pick };
+      if (isCustom) payload.cost_per_lead = Number(costPer);
+      const { data } = await api.post("/leads/bulk-assign-manager", payload);
       if (data.skipped > 0) {
-        toast.warning(`${data.assigned} assigned · ${data.skipped} skipped`);
+        toast.warning(`${data.assigned} assigned · ${data.skipped} skipped · ${data.total_debited} pts debited`);
       } else {
-        toast.success(`${data.assigned} leads assigned · ${data.total_debited} pts debited`);
+        toast.success(`${data.assigned} leads assigned · ${data.total_debited} pts debited @ ${data.cost_per_lead}/lead`);
       }
       onDone();
     } catch (e) { toast.error(formatApiError(e)); }
@@ -266,7 +317,7 @@ function BulkAssignDialog({ ids, onClose, onDone }) {
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <div>
             <div className="font-display font-bold text-lg">Bulk assign</div>
-            <div className="text-xs text-neutral-500 mt-0.5">{ids.length} lead{ids.length === 1 ? "" : "s"} · {costPer} pts each</div>
+            <div className="text-xs text-neutral-500 mt-0.5">{ids.length} lead{ids.length === 1 ? "" : "s"} selected</div>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 text-sm">Close</button>
         </div>
@@ -282,6 +333,51 @@ function BulkAssignDialog({ ids, onClose, onDone }) {
               ))}
             </select>
           </div>
+
+          <div>
+            <label className="gr-label flex items-center justify-between">
+              <span>Cost per lead (points)</span>
+              {isCustom && (
+                <button
+                  onClick={() => setCostPer(defaultCost)}
+                  className="text-[10px] font-mono text-[#ff5f1f] hover:underline normal-case tracking-normal"
+                  data-testid="reset-cost-btn"
+                >
+                  reset to default ({defaultCost})
+                </button>
+              )}
+            </label>
+            <div className="flex items-center gap-2">
+              <Coins size={16} className="text-[#ff5f1f] shrink-0" />
+              <input
+                type="number"
+                min="0"
+                className="gr-input flex-1"
+                value={costPer}
+                onChange={(e) => setCostPer(e.target.value)}
+                data-testid="bulk-cost-input"
+              />
+              <div className="flex gap-1">
+                {[10, 15, 25, 100, 200].map((v) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setCostPer(v)}
+                    className={`px-2 py-1 text-[11px] font-mono border ${Number(costPer) === v ? "border-[#ff5f1f] bg-orange-50 text-[#ff5f1f]" : "border-neutral-200 hover:border-neutral-400"}`}
+                    data-testid={`cost-preset-${v}`}
+                  >
+                    {v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="text-[11px] text-neutral-500 mt-1">
+              {isCustom
+                ? `Override active — default cost is ${defaultCost} pts. Change permanently in Settings.`
+                : "Using the global default. Change in Settings, or override here for this batch only."}
+            </div>
+          </div>
+
           <div className="grid grid-cols-3 gap-2 text-center">
             <div className="gr-card p-2">
               <div className="gr-overline text-[10px]">Leads</div>
@@ -297,17 +393,19 @@ function BulkAssignDialog({ ids, onClose, onDone }) {
             </div>
           </div>
           {insufficient && (
-            <div className="text-xs text-red-600 font-mono">Manager needs {totalCost - balance} more pts. Credit their wallet first.</div>
+            <div className="text-xs text-red-600 font-mono">
+              Manager needs {totalCost - balance} more pts. Credit their wallet first.
+            </div>
           )}
           <div className="flex justify-end gap-2 pt-2">
             <button className="gr-btn gr-btn-ghost" onClick={onClose}>Cancel</button>
             <button
               className="gr-btn gr-btn-primary"
               onClick={submit}
-              disabled={busy || !pick || insufficient}
+              disabled={busy || !pick || insufficient || !(Number(costPer) >= 0)}
               data-testid="bulk-assign-confirm"
             >
-              {busy ? "Assigning…" : `Assign ${ids.length} lead${ids.length === 1 ? "" : "s"}`}
+              {busy ? "Assigning…" : `Assign · ${totalCost} pts`}
             </button>
           </div>
         </div>
