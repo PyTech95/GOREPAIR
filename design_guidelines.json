@@ -1,142 +1,131 @@
 {
   "theme": "Light",
-  "archetype": "4 (Swiss & High-Contrast)",
-  "brand_identity": {
-    "name": "GO Repair",
-    "domain": "Home Appliance Repair CRM (Ops-heavy)",
-    "vibe": "Objective, rigid, functional, high-trust, mechanical/industrial efficiency.",
-    "emotional_tone": "Utilitarian command center for dispatch and service tracking."
-  },
+  "archetype": "Archetype 4: Swiss & High-Contrast",
   "typography": {
-    "font_families": {
-      "headings": "'Cabinet Grotesk', sans-serif",
-      "body": "'Chivo', sans-serif",
-      "mono": "'JetBrains Mono', monospace"
+    "headings": {
+      "font": "Cabinet Grotesk (font-display)",
+      "weight": "Heavy/Black",
+      "style": "tracking-tight to tracking-tighter, leading-none",
+      "sizes": {
+        "h1": "text-5xl sm:text-6xl md:text-7xl",
+        "h2": "text-3xl sm:text-4xl lg:text-5xl",
+        "h3": "text-2xl sm:text-3xl"
+      }
     },
-    "hierarchy": {
-      "h1": "text-4xl sm:text-5xl font-black tracking-tighter leading-none text-neutral-900",
-      "h2": "text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900",
-      "h3": "text-xl sm:text-2xl font-bold tracking-tight text-neutral-900",
-      "h4": "text-lg sm:text-xl font-semibold text-neutral-800",
-      "body": "text-base font-normal text-neutral-700 leading-relaxed",
-      "small": "text-sm font-medium text-neutral-500",
-      "mono_data": "font-mono text-sm tracking-tight text-neutral-900",
-      "overline": "text-xs font-bold uppercase tracking-[0.2em] text-neutral-500"
+    "body": {
+      "font": "Sans-serif (default)",
+      "weight": "Normal",
+      "style": "leading-relaxed",
+      "sizes": {
+        "base": "text-base sm:text-lg",
+        "small": "text-sm"
+      }
+    },
+    "labels_and_overlines": {
+      "font": "Monospace (font-mono)",
+      "weight": "Medium/Bold",
+      "style": "uppercase tracking-[0.2em] text-xs sm:text-sm"
     }
   },
-  "colors": {
+  "color_palette": {
     "primary": {
-      "DEFAULT": "#FF5F1F",
-      "hover": "#E04D14",
-      "foreground": "#FFFFFF"
+      "hex": "#ff5f1f",
+      "name": "Signal Orange",
+      "usage": "Primary action buttons, active states, hover glows, text highlights."
     },
-    "secondary": {
-      "DEFAULT": "#0A0A0A",
-      "hover": "#27272A",
-      "foreground": "#FFFFFF"
+    "base": {
+      "hex": "#0a0a0a",
+      "name": "Deep Black",
+      "usage": "Text color for headings, dark backgrounds for inverted sections, heavy borders."
     },
-    "background": {
-      "app": "#F5F5F5",
-      "surface": "#FFFFFF",
-      "sidebar": "#0A0A0A",
-      "sidebar_foreground": "#FFFFFF"
+    "backgrounds": {
+      "primary": "#ffffff",
+      "secondary": "#f4f4f5",
+      "inverted": "#0a0a0a"
     },
-    "accent": {
-      "blue": "#002FA7",
-      "yellow": "#FACC15",
-      "green": "#16A34A",
-      "red": "#DC2626"
-    },
-    "neutral": {
-      "50": "#FAFAFA",
-      "100": "#F4F4F5",
-      "200": "#E4E4E7",
-      "300": "#D4D4D8",
-      "400": "#A1A1AA",
-      "500": "#71717A",
-      "600": "#52525B",
-      "700": "#3F3F46",
-      "800": "#27272A",
-      "900": "#18181B"
-    },
-    "border": "#E4E4E7"
+    "borders": {
+      "default": "#e5e7eb",
+      "dark": "#0a0a0a"
+    }
   },
-  "layout_and_spacing": {
-    "container_padding": "p-6 sm:p-8",
-    "grid_gaps": "gap-4 sm:gap-6",
-    "border_radius": {
-      "surface": "rounded-sm",
-      "buttons": "rounded-sm",
-      "inputs": "rounded-sm",
-      "tags": "rounded-none"
+  "spacing_and_layout": {
+    "philosophy": "Swiss-brutalist: Generous whitespace, asymmetric balance, heavy borders, sharp edges (no rounding).",
+    "grid": {
+      "desktop": "grid-cols-12 gap-8",
+      "tablet": "grid-cols-8 gap-6",
+      "mobile": "grid-cols-4 gap-4"
     },
-    "patterns": {
-      "dashboard_grid": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-4",
-      "sidebar": "fixed left-0 top-0 h-screen w-64 bg-secondary flex flex-col border-r border-neutral-800 z-40 transition-all duration-300",
-      "header": "sticky top-0 w-full h-16 bg-surface/90 backdrop-blur-xl border-b border-border flex items-center justify-between px-6 z-30"
+    "padding": {
+      "section_y": "py-16 md:py-24 lg:py-32",
+      "container_x": "px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto"
     }
   },
   "components": {
-    "cards": {
-      "default": "bg-surface border border-border p-5 rounded-sm shadow-none transition-all duration-200",
-      "hover": "hover:shadow-md hover:-translate-y-0.5 hover:border-neutral-300",
-      "metric_card": "flex flex-col gap-2 p-5 bg-surface border border-border border-l-4 border-l-primary"
+    "hero": {
+      "layout": "Asymmetrical split or Bento. Massive typography on the left, visual collage/parallax on the right.",
+      "cta": "Large, bold button. bg-[#ff5f1f] text-white, no border-radius. On hover: -translate-y-1 shadow-[4px_4px_0px_#0a0a0a].",
+      "text": "Keep heading heavy. Overline 'FAST, RELIABLE DOORSTEP REPAIR'. Add a trust badge nearby (e.g. 'Rated 4.7/5')."
     },
-    "tables": {
-      "wrapper": "w-full overflow-x-auto border border-border bg-surface",
-      "header": "bg-neutral-50 border-b border-border text-left text-xs font-bold uppercase tracking-wider text-neutral-500 py-3 px-4",
-      "row": "border-b border-border hover:bg-neutral-50 transition-colors",
-      "cell": "py-3 px-4 text-sm text-neutral-800 whitespace-nowrap"
+    "category_grid": {
+      "layout": "Grid: 2 cols on mobile, 3 tablet, 4 desktop.",
+      "card_style": "Sharp edges, 1px or 2px solid border-[#0a0a0a], bg-white. Padded nicely (p-6).",
+      "hover_state": "-translate-y-1, shadow-[4px_4px_0px_#ff5f1f] or solid black shadow. Icon scales up by 110%.",
+      "icons": "Use Lucide React icons. Map: AC -> Snowflake, Washing Machine -> WashingMachine, Refrigerator -> Refrigerator, Microwave -> Microwave, TV -> Tv, Geyser -> Droplet, Water Purifier -> Filter, Kitchen Chimney -> Utensils, Fan -> Fan."
     },
-    "badges": {
-      "pending": "px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold uppercase tracking-wide border border-yellow-200",
-      "in_progress": "px-2 py-1 bg-blue-100 text-blue-800 text-xs font-bold uppercase tracking-wide border border-blue-200",
-      "completed": "px-2 py-1 bg-green-100 text-green-800 text-xs font-bold uppercase tracking-wide border border-green-200",
-      "cancelled": "px-2 py-1 bg-neutral-100 text-neutral-800 text-xs font-bold uppercase tracking-wide border border-neutral-200"
+    "trust_band": {
+      "layout": "Full width marquee/ticker.",
+      "style": "bg-[#0a0a0a] text-white py-4 font-mono text-sm uppercase tracking-wider. Items separated by star/dot."
     },
-    "buttons": {
-      "primary": "inline-flex items-center justify-center px-4 py-2 bg-primary text-primary-foreground font-bold text-sm rounded-sm hover:bg-primary-hover transition-colors",
-      "outline": "inline-flex items-center justify-center px-4 py-2 border-2 border-secondary text-secondary font-bold text-sm rounded-sm hover:bg-secondary hover:text-secondary-foreground transition-colors",
-      "ghost": "inline-flex items-center justify-center px-4 py-2 text-neutral-600 font-bold text-sm hover:bg-neutral-100 hover:text-neutral-900 transition-colors"
+    "how_it_works": {
+      "layout": "4-step horizontal or staggered vertical flow.",
+      "style": "Step numbers in massive overlapping font (opacity-10 text-black). Clean descriptive text."
     },
-    "ai_panel": {
-      "container": "relative bg-surface border border-accent-blue/30 p-5 rounded-sm",
-      "indicator": "absolute -left-[1px] top-0 bottom-0 w-1 bg-accent-blue shadow-[0_0_8px_rgba(0,47,167,0.5)]"
+    "navigation": {
+      "desktop": "Sticky header, glass-morphism effect (backdrop-blur-md bg-white/80) on scroll. Solid bottom border border-[#0a0a0a]. Animated underlines on hover for links.",
+      "mobile": "Hamburger menu opening a sheet. Fixed CTA at the bottom of the screen ('Book Now')."
     }
   },
-  "icons": {
-    "library": "@phosphor-icons/react",
-    "style": "Regular for standard, Fill for active/selected states.",
-    "installation": "yarn add @phosphor-icons/react"
+  "animations": {
+    "library": "framer-motion",
+    "hero_stagger": "Stagger children (0.1s delay) sliding up from y: 20, opacity: 0 to y: 0, opacity: 1.",
+    "parallax": "Use useScroll and useTransform for subtle y-axis shifting of hero images on scroll.",
+    "scroll_reveals": "whileInView={ opacity: 1, y: 0 }, initial={ opacity: 0, y: 30 }, viewport={ once: true, margin: '-100px' }.",
+    "counters": "Animated odometer/counter for trust metrics (12,000+, 450+, 4.7).",
+    "micro_interactions": "whileHover={{ scale: 1.05 }} for icons inside category cards.",
+    "ticker": "Use framer-motion animate x: [0, -100%] with repeat: Infinity for the trust pills marquee."
   },
-  "media_and_assets": {
-    "logo_strategy": "Text-based logotype 'GO REPAIR' in Cabinet Grotesk Black, with a bright orange square (■) replacing the 'O'.",
-    "images": {
-      "technician_avatar_1": "https://images.unsplash.com/photo-1656354637194-8dc7670e6bcc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjByZXBhaXIlMjB0ZWNobmljaWFuJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
-      "technician_avatar_2": "https://images.unsplash.com/photo-1586447751596-6c2050a0d335?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NDh8MHwxfHNlYXJjaHwzfHxhcHBsaWFuY2UlMjByZXBhaXIlMjB0ZWNobmljaWFuJTIwcG9ydHJhaXR8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
-      "brand_kit_tshirt": "https://images.unsplash.com/photo-1637531347055-4fa8aa80c111?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzV8MHwxfHNlYXJjaHwxfHxvcmFuZ2UlMjBwb2xvJTIwc2hpcnR8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
-      "brand_kit_diary": "https://images.unsplash.com/photo-1709988795057-a13a7a612046?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzl8MHwxfHNlYXJjaHwxfHxub3RlYm9vayUyMGRpYXJ5JTIwYnJhbmRpbmd8ZW58MHx8fHwxNzc2NTM1NDc2fDA&ixlib=rb-4.1.0&q=85",
-      "hero_bg_login": "https://images.unsplash.com/photo-1768051579338-3dc694863efc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzV8MHwxfHNlYXJjaHwxfHxob21lJTIwYXBwbGlhbmNlJTIwd2FzaGluZyUyMG1hY2hpbmUlMjByZXBhaXJ8ZW58MHx8fHwxNzc2NTM1NDU5fDA&ixlib=rb-4.1.0&q=85",
-      "auth_hero_tool": "https://images.unsplash.com/photo-1580401410158-1f0b0a406762?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODl8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjB3YXNoaW5nJTIwbWFjaGluZSUyMHJlcGFpciUyMHRvb2xzfGVufDB8fHx8MTc3NjUzNTQ3MXww&ixlib=rb-4.1.0&q=85"
+  "mobile_first": {
+    "touch_targets": "Minimum 44px height for all buttons and links.",
+    "typography_scaling": "Ensure text-7xl drops to text-5xl on mobile to prevent overflow.",
+    "fixed_elements": "Bottom sticky primary CTA bar strictly for mobile view to drive conversions."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1759434775823-40d8b9577a41?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1ODh8MHwxfHNlYXJjaHwxfHxhcHBsaWFuY2UlMjByZXBhaXIlMjB0ZWNobmljaWFufGVufDB8fHx8MTc4MDE2NTYzMXww&ixlib=rb-4.1.0&q=85",
+      "description": "Technician working (Hero collage / trust element)",
+      "category": "hero"
+    },
+    {
+      "url": "https://images.pexels.com/photos/31725399/pexels-photo-31725399.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Technician precision repair",
+      "category": "how_it_works"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1639405069836-f82aa6dcb900?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1OTN8MHwxfHNlYXJjaHwyfHxtb2Rlcm4lMjBob21lJTIwYXBwbGlhbmNlc3xlbnwwfHx8fDE3ODAxNjU2MzF8MA&ixlib=rb-4.1.0&q=85",
+      "description": "Modern kitchen with appliances",
+      "category": "background_context"
     }
-  },
-  "testing_requirements": {
-    "attributes": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case format (e.g., data-testid='login-submit-button', data-testid='assign-lead-button')."
-  },
-  "motion_and_interactions": {
-    "hover_states": "Crisp transformations. -translate-y-[2px] with shadow-md. Do not use soft blurs for hover.",
-    "focus_states": "focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface",
-    "page_transitions": "Minimalist. Use opacity fade (duration-200) rather than heavy transforms for a fast, utilitarian feel."
-  },
+  ],
   "instructions_to_main_agent": [
-    "Implement pure HTML+Tailwind for foundational structural layouts; avoid Shadcn wrappers if they enforce padding/margins.",
-    "Use Shadcn UI for interactive components (Dropdowns, Dialogs, Select, Tabs) but strictly override the styles to match the 'Swiss Brutalist' aesthetic (sharp corners, 1px hard borders, no soft shadows on resting).",
-    "Use @phosphor-icons/react for all iconography to maintain technical precision.",
-    "Build the dashboard using a collapsible sidebar (left) and sticky header (top) layout.",
-    "Tables must be dense (py-2 px-3) and utilize zebra striping for scannability.",
-    "For the AI Smart-Assign feature, apply the `ai_panel` component style to give it a distinct visual hierarchy (glowing blue left border).",
-    "Ensure the Brand Kit store uses a neat bento/grid layout for physical products.",
-    "Add 'Cabinet Grotesk' and 'Chivo' via Google Fonts or Fontsource in the base HTML/CSS.",
-    "All forms and buttons must include data-testid attributes for E2E testing."
+    "1. Ensure 'framer-motion' is installed via yarn. Install 'lucide-react' if not already available.",
+    "2. Perform all updates strictly within `/app/frontend/src/pages/customer/CustomerLanding.jsx`.",
+    "3. Map existing emoji categories to explicit Lucide icons: AC -> Snowflake, Washing Machine -> WashingMachine, Refrigerator -> Refrigerator, Microwave -> Microwave, TV -> Tv, Geyser -> Droplet, Water Purifier -> Filter, Kitchen Chimney -> Utensils, Fan -> Fan.",
+    "4. Apply Swiss-Brutalist UI: No rounded corners (`rounded-none`), heavy thick borders (`border-2 border-[#0a0a0a]`), deep solid shadows (`shadow-[4px_4px_0px_#ff5f1f]`), and stark contrasts.",
+    "5. Avoid generic purple or teal gradients. Use only Signal Orange (`--gr-orange` / `#ff5f1f`), Black (`#0a0a0a`), and White.",
+    "6. Integrate a sticky mobile-only bottom nav containing the primary 'Book a service' CTA.",
+    "7. Include all required 'data-testid' tags per the user's constraints: 'cat-{sku}', 'hero-book-cta', 'hero-call-cta', 'nav-services', 'nav-login', 'nav-register', 'nav-mybookings', 'nav-console', 'customer-landing'.",
+    "8. Implement scroll-triggered framer-motion animations: staggered text reveals, a continuous marquee for trust indicators, and parallax background elements.",
+    "9. Use the `Cabinet Grotesk` (font-display) heavily for headings in combination with tight letter-spacing (`tracking-tight`).",
+    "10. For trust metrics (12,000+, 450+, 4.7), build an animated number counter component triggered when scrolled into view."
   ]
 }
