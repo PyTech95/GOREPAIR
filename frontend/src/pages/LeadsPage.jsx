@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { Plus, Search, Filter, Upload, FileText } from "lucide-react";
+import { Plus, Search, Filter, Upload, FileText, Users as UsersIcon, CheckSquare, Square, X } from "lucide-react";
 
 const APPLIANCES = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser", "Other"];
 const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"];
@@ -11,12 +11,18 @@ const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referra
 export default function LeadsPage() {
   const { user } = useAuth();
   const [leads, setLeads] = useState([]);
+  const [cities, setCities] = useState([]);
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState("all");
+  const [cityFilter, setCityFilter] = useState("all");
   const [showCreate, setShowCreate] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(new Set());
+  const [showBulkAssign, setShowBulkAssign] = useState(false);
+
+  const isAdmin = user?.role === "super_admin";
 
   const load = async () => {
     try {
@@ -24,19 +30,41 @@ export default function LeadsPage() {
       const params = {};
       if (statusFilter !== "all") params.status = statusFilter;
       if (sourceFilter !== "all") params.source = sourceFilter;
+      if (cityFilter !== "all") params.city = cityFilter;
       const { data } = await api.get("/leads", { params });
       setLeads(data);
+      setSelected(new Set());
     } catch (e) { toast.error(formatApiError(e)); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter, sourceFilter]);
+  useEffect(() => {
+    api.get("/leads/cities").then((r) => setCities(r.data)).catch(() => {});
+  }, []);
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [statusFilter, sourceFilter, cityFilter]);
 
   const filtered = leads.filter((l) => {
     if (!query) return true;
     const q = query.toLowerCase();
     return [l.customer_name, l.phone, l.city, l.appliance_type, l.issue].some((v) => (v || "").toLowerCase().includes(q));
   });
+
+  // Only unassigned leads can be bulk-assigned to a manager
+  const selectableIds = filtered.filter((l) => !l.manager_id).map((l) => l.id);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleAll = () => {
+    if (allSelected) setSelected(new Set());
+    else setSelected(new Set(selectableIds));
+  };
+  const toggleOne = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const clearSelection = () => setSelected(new Set());
 
   return (
     <div className="space-y-6" data-testid="leads-page">
@@ -88,6 +116,10 @@ export default function LeadsPage() {
               <option value="all">All sources</option>
               {SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
+            <select className="gr-input" value={cityFilter} onChange={(e) => setCityFilter(e.target.value)} data-testid="filter-city">
+              <option value="all">All cities</option>
+              {cities.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
           </div>
         </div>
       </div>
@@ -97,39 +129,65 @@ export default function LeadsPage() {
           <table className="gr-table">
             <thead>
               <tr>
+                {isAdmin && (
+                  <th style={{ width: 36 }}>
+                    <button onClick={toggleAll} className="text-neutral-500 hover:text-[#ff5f1f]" data-testid="select-all-leads" aria-label="Select all unassigned">
+                      {allSelected ? <CheckSquare size={16} className="text-[#ff5f1f]" /> : <Square size={16} />}
+                    </button>
+                  </th>
+                )}
                 <th>Customer</th><th>Phone</th><th>Appliance</th><th>City</th>
                 <th>Priority</th><th>Source</th><th>Status</th><th>Created</th><th></th>
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={9} className="text-center py-8 text-neutral-400">Loading…</td></tr>}
+              {loading && <tr><td colSpan={isAdmin ? 10 : 9} className="text-center py-8 text-neutral-400">Loading…</td></tr>}
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={9} className="text-center py-10 text-neutral-400">No leads found</td></tr>
+                <tr><td colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-neutral-400">No leads found</td></tr>
               )}
-              {filtered.map((l) => (
-                <tr key={l.id} data-testid={`lead-row-${l.id}`}>
-                  <td className="font-semibold">{l.customer_name}</td>
-                  <td className="font-mono text-xs">{l.phone}</td>
-                  <td>{l.appliance_type}</td>
-                  <td className="text-neutral-600">{l.city}</td>
-                  <td><span className={`gr-badge ${l.priority}`}>{l.priority}</span></td>
-                  <td><span className="gr-badge new">{l.source}</span></td>
-                  <td><span className={`gr-badge ${l.status}`}>{l.status.replace("_", " ")}</span></td>
-                  <td className="text-neutral-500 text-xs">{new Date(l.created_at).toLocaleDateString("en-IN")}</td>
-                  <td>
-                    <div className="flex items-center gap-2">
-                      {l.status === "completed" && l.final_cost && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#16a34a] px-1.5 py-0.5 border border-green-200 bg-green-50" title="GST invoice ready">
-                          <FileText size={10} /> Invoice
-                        </span>
-                      )}
-                      <Link to={`/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
-                        Open →
-                      </Link>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((l) => {
+                const canSelect = isAdmin && !l.manager_id;
+                const isSel = selected.has(l.id);
+                return (
+                  <tr
+                    key={l.id}
+                    data-testid={`lead-row-${l.id}`}
+                    className={isSel ? "bg-orange-50/60" : ""}
+                  >
+                    {isAdmin && (
+                      <td>
+                        {canSelect ? (
+                          <button onClick={() => toggleOne(l.id)} aria-label="Select lead" data-testid={`select-${l.id}`}>
+                            {isSel ? <CheckSquare size={16} className="text-[#ff5f1f]" /> : <Square size={16} className="text-neutral-400 hover:text-[#ff5f1f]" />}
+                          </button>
+                        ) : (
+                          <span className="text-neutral-300 text-[10px] font-mono">—</span>
+                        )}
+                      </td>
+                    )}
+                    <td className="font-semibold">{l.customer_name}</td>
+                    <td className="font-mono text-xs">{l.phone}</td>
+                    <td>{l.appliance_type}</td>
+                    <td className="text-neutral-600">{l.city}</td>
+                    <td><span className={`gr-badge ${l.priority}`}>{l.priority}</span></td>
+                    <td><span className="gr-badge new">{l.source}</span></td>
+                    <td><span className={`gr-badge ${l.status}`}>{l.status.replace("_", " ")}</span></td>
+                    <td className="text-neutral-500 text-xs">{new Date(l.created_at).toLocaleDateString("en-IN")}</td>
+                    <td>
+                      <div className="flex items-center gap-2">
+                        {l.status === "completed" && l.final_cost && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-[#16a34a] px-1.5 py-0.5 border border-green-200 bg-green-50" title="GST invoice ready">
+                            <FileText size={10} /> Invoice
+                          </span>
+                        )}
+                        <Link to={`/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
+                          Open →
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -137,6 +195,123 @@ export default function LeadsPage() {
 
       {showCreate && <CreateLeadDialog onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); load(); }} />}
       {showImport && <ImportCsvDialog onClose={() => setShowImport(false)} onDone={() => { setShowImport(false); load(); }} />}
+
+      {isAdmin && selected.size > 0 && (
+        <div
+          className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 bg-[#0a0a0a] text-white border border-[#ff5f1f] shadow-2xl gr-sharp flex items-center gap-4 px-4 py-3 gr-fade-in"
+          data-testid="bulk-action-bar"
+        >
+          <button onClick={clearSelection} className="text-neutral-400 hover:text-white" aria-label="Clear selection">
+            <X size={16} />
+          </button>
+          <div className="font-mono text-sm">
+            <span className="text-[#ff5f1f] font-bold">{selected.size}</span>{" "}
+            <span className="text-neutral-400">lead{selected.size === 1 ? "" : "s"} selected</span>
+          </div>
+          <button
+            className="gr-btn gr-btn-primary"
+            onClick={() => setShowBulkAssign(true)}
+            data-testid="bulk-assign-btn"
+          >
+            <UsersIcon size={14} /> Assign to manager
+          </button>
+        </div>
+      )}
+      {showBulkAssign && (
+        <BulkAssignDialog
+          ids={Array.from(selected)}
+          onClose={() => setShowBulkAssign(false)}
+          onDone={() => { setShowBulkAssign(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function BulkAssignDialog({ ids, onClose, onDone }) {
+  const [managers, setManagers] = useState([]);
+  const [pick, setPick] = useState("");
+  const [settings, setSettings] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    api.get("/users", { params: { role: "manager" } }).then((r) => setManagers(r.data)).catch(() => {});
+    api.get("/settings").then((r) => setSettings(r.data)).catch(() => {});
+  }, []);
+
+  const costPer = settings?.cost_per_lead ?? 200;
+  const totalCost = ids.length * costPer;
+  const picked = managers.find((m) => m.id === pick);
+  const balance = picked?.wallet_balance ?? 0;
+  const insufficient = picked && balance < totalCost;
+
+  const submit = async () => {
+    if (!pick) return toast.error("Pick a manager");
+    setBusy(true);
+    try {
+      const { data } = await api.post("/leads/bulk-assign-manager", { lead_ids: ids, manager_id: pick });
+      if (data.skipped > 0) {
+        toast.warning(`${data.assigned} assigned · ${data.skipped} skipped`);
+      } else {
+        toast.success(`${data.assigned} leads assigned · ${data.total_debited} pts debited`);
+      }
+      onDone();
+    } catch (e) { toast.error(formatApiError(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={onClose} data-testid="bulk-assign-dialog">
+      <div className="bg-white w-full max-w-md gr-sharp" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <div className="font-display font-bold text-lg">Bulk assign</div>
+            <div className="text-xs text-neutral-500 mt-0.5">{ids.length} lead{ids.length === 1 ? "" : "s"} · {costPer} pts each</div>
+          </div>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 text-sm">Close</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="gr-label">Assign to manager</label>
+            <select className="gr-input" value={pick} onChange={(e) => setPick(e.target.value)} data-testid="bulk-manager-select">
+              <option value="">Select manager…</option>
+              {managers.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name} · {m.city || "—"} · {m.wallet_balance ?? 0} pts
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="gr-card p-2">
+              <div className="gr-overline text-[10px]">Leads</div>
+              <div className="font-display font-black text-xl">{ids.length}</div>
+            </div>
+            <div className="gr-card p-2">
+              <div className="gr-overline text-[10px]">Total cost</div>
+              <div className="font-display font-black text-xl text-[#ff5f1f]">{totalCost}</div>
+            </div>
+            <div className={`gr-card p-2 ${insufficient ? "border-red-300 bg-red-50/40" : ""}`}>
+              <div className="gr-overline text-[10px]">Mgr wallet</div>
+              <div className={`font-display font-black text-xl ${insufficient ? "text-red-600" : ""}`}>{picked ? balance : "—"}</div>
+            </div>
+          </div>
+          {insufficient && (
+            <div className="text-xs text-red-600 font-mono">Manager needs {totalCost - balance} more pts. Credit their wallet first.</div>
+          )}
+          <div className="flex justify-end gap-2 pt-2">
+            <button className="gr-btn gr-btn-ghost" onClick={onClose}>Cancel</button>
+            <button
+              className="gr-btn gr-btn-primary"
+              onClick={submit}
+              disabled={busy || !pick || insufficient}
+              data-testid="bulk-assign-confirm"
+            >
+              {busy ? "Assigning…" : `Assign ${ids.length} lead${ids.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

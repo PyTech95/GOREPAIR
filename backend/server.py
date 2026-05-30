@@ -327,11 +327,13 @@ async def list_leads(
     manager_id: Optional[str] = None,
     technician_id: Optional[str] = None,
     source: Optional[str] = None,
+    city: Optional[str] = None,
     user: dict = Depends(get_current_user),
 ):
     q: dict = {}
     if status: q["status"] = status
     if source: q["source"] = source
+    if city: q["city"] = city
     if user["role"] == "super_admin":
         if manager_id: q["manager_id"] = manager_id
         if technician_id: q["technician_id"] = technician_id
@@ -342,6 +344,17 @@ async def list_leads(
         q["technician_id"] = user["id"]
     leads = await db.leads.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return leads
+
+@api.get("/leads/cities")
+async def list_cities(user: dict = Depends(get_current_user)):
+    """Distinct cities present in the leads collection (scoped to role)."""
+    match: dict = {}
+    if user["role"] == "manager":
+        match["manager_id"] = user["id"]
+    elif user["role"] == "technician":
+        match["technician_id"] = user["id"]
+    cities = await db.leads.distinct("city", match)
+    return sorted([c for c in cities if c])
 
 @api.post("/leads")
 async def create_lead(body: LeadCreate, user: dict = Depends(require_roles("super_admin", "manager"))):
@@ -412,6 +425,55 @@ async def _wallet_txn(manager_id: str, type_: str, points: int, reason: str, lea
     await db.transactions.insert_one(txn)
     txn.pop("_id", None)
     return txn
+
+class LeadBulkAssign(BaseModel):
+    lead_ids: List[str] = Field(min_length=1, max_length=200)
+    manager_id: str
+
+@api.post("/leads/bulk-assign-manager")
+async def bulk_assign_manager(body: LeadBulkAssign, admin: dict = Depends(require_roles("super_admin"))):
+    settings = await get_settings()
+    cost_per = settings.get("cost_per_lead", 200)
+    # Validate manager
+    mgr = await db.users.find_one({"id": body.manager_id, "role": "manager"})
+    if not mgr:
+        raise HTTPException(404, "Manager not found")
+    # Fetch only unassigned + matching leads
+    candidates = await db.leads.find(
+        {"id": {"$in": body.lead_ids}, "manager_id": None},
+        {"_id": 0},
+    ).to_list(len(body.lead_ids))
+    if not candidates:
+        raise HTTPException(400, "No unassigned leads in the selection")
+    total_cost = cost_per * len(candidates)
+    balance = mgr.get("wallet_balance", 0) or 0
+    if balance < total_cost:
+        raise HTTPException(400, f"Insufficient wallet balance ({balance} pts, need {total_cost} for {len(candidates)} leads)")
+    # Apply one lead at a time so each gets a ledger entry + notification
+    assigned = []
+    for lead in candidates:
+        try:
+            await _wallet_txn(body.manager_id, "debit", cost_per, f"Lead purchase (bulk): {lead.get('customer_name')}", lead["id"])
+        except HTTPException:
+            break
+        await db.leads.update_one(
+            {"id": lead["id"]},
+            {"$set": {
+                "manager_id": body.manager_id,
+                "status": "assigned_manager",
+                "cost_points": cost_per,
+                "assigned_manager_at": now_iso(),
+            }},
+        )
+        await send_notification(
+            "whatsapp", mgr.get("phone") or mgr["email"], "lead_assigned_manager",
+            {"manager_name": mgr["name"], "appliance": lead.get("appliance_type"),
+             "customer": lead.get("customer_name"), "city": lead.get("city"), "cost_points": cost_per},
+            user_id=mgr["id"], lead_id=lead["id"],
+        )
+        assigned.append(lead["id"])
+    skipped = [lid for lid in body.lead_ids if lid not in assigned]
+    return {"assigned": len(assigned), "skipped": len(skipped), "assigned_ids": assigned, "skipped_ids": skipped, "total_debited": cost_per * len(assigned)}
 
 @api.post("/leads/{lid}/assign-manager")
 async def assign_manager(lid: str, body: LeadAssignManager, admin: dict = Depends(require_roles("super_admin"))):
