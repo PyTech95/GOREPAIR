@@ -27,6 +27,10 @@ UPLOAD_DIR = ROOT_DIR / "uploads"
 UPLOAD_DIR.mkdir(exist_ok=True)
 ALLOWED_IMAGE_EXT = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".heic"}
 
+import sys
+sys.path.insert(0, str(ROOT_DIR))
+from catalog import CATALOG, SKU_INDEX, CATEGORY_INDEX
+
 # -----------------------------------------------------------------------------
 # Config / DB
 # -----------------------------------------------------------------------------
@@ -113,9 +117,9 @@ def require_roles(*roles: str):
 # -----------------------------------------------------------------------------
 # Models
 # -----------------------------------------------------------------------------
-Role = Literal["super_admin", "manager", "technician"]
+Role = Literal["super_admin", "manager", "technician", "customer"]
 LeadStatus = Literal["new", "assigned_manager", "assigned_technician", "in_progress", "completed", "cancelled", "invalid"]
-LeadSource = Literal["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"]
+LeadSource = Literal["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial", "customer_app"]
 TxnType = Literal["credit", "debit", "refund", "recharge", "brand_kit"]
 
 class LoginIn(BaseModel):
@@ -1353,6 +1357,223 @@ async def rzp_verify(body: RzpVerifyIn, user: dict = Depends(require_roles("mana
     txn = await _wallet_txn(user["id"], "recharge", body.amount_inr, f"Razorpay{' (mock)' if not kid else ''} order {body.razorpay_order_id}")
     await db.razorpay_orders.delete_one({"order_id": body.razorpay_order_id})
     return {"ok": True, "mode": "live" if kid else "mock", "txn": txn}
+
+# -----------------------------------------------------------------------------
+# CUSTOMER-FACING APP — registration, catalog, booking
+# -----------------------------------------------------------------------------
+class CustomerRegister(BaseModel):
+    name: str = Field(min_length=2, max_length=80)
+    phone: str = Field(min_length=8, max_length=20)
+    password: str = Field(min_length=6, max_length=80)
+    email: Optional[EmailStr] = None
+    city: Optional[str] = None
+
+class CustomerLogin(BaseModel):
+    phone: str
+    password: str
+
+class AddressIn(BaseModel):
+    label: str = "Home"
+    line1: str
+    line2: Optional[str] = None
+    city: str
+    pincode: Optional[str] = None
+    lat: Optional[float] = None
+    lng: Optional[float] = None
+
+class BookingCreate(BaseModel):
+    service_sku: str
+    address_id: Optional[str] = None
+    address: Optional[AddressIn] = None
+    slot_date: str  # ISO date YYYY-MM-DD
+    slot_window: str  # e.g. "10:00-12:00"
+    issue_note: Optional[str] = None
+
+@api.post("/customer/register")
+async def customer_register(body: CustomerRegister):
+    phone = body.phone.strip()
+    if await db.users.find_one({"$or": [{"phone": phone, "role": "customer"}, {"email": (body.email or "").lower(), "role": "customer"} if body.email else {"_": "_"}]}):
+        raise HTTPException(400, "Account already exists with this phone or email")
+    uid = str(uuid.uuid4())
+    email = (body.email or f"{phone}@customer.gorepair.in").lower()
+    doc = {
+        "id": uid, "email": email, "phone": phone,
+        "password_hash": hash_password(body.password),
+        "name": body.name, "role": "customer",
+        "city": body.city, "addresses": [],
+        "active": True, "created_at": now_iso(),
+    }
+    await db.users.insert_one(doc)
+    token = create_token(uid, "customer")
+    return {"token": token, "user": strip_mongo(doc)}
+
+@api.post("/customer/login")
+async def customer_login(body: CustomerLogin):
+    user = await db.users.find_one({"phone": body.phone.strip(), "role": "customer"})
+    if not user or not verify_password(body.password, user.get("password_hash", "")):
+        raise HTTPException(401, "Invalid phone or password")
+    if not user.get("active", True):
+        raise HTTPException(403, "Account disabled")
+    token = create_token(user["id"], "customer")
+    return {"token": token, "user": strip_mongo(user)}
+
+@api.get("/catalog")
+async def get_catalog():
+    """Public service catalogue — no auth required."""
+    return {"categories": CATALOG}
+
+@api.get("/catalog/service/{sku}")
+async def get_service(sku: str):
+    s = SKU_INDEX.get(sku)
+    if not s:
+        raise HTTPException(404, "Service not found")
+    # Find parent category
+    for cat in CATALOG:
+        if any(svc["sku"] == sku for svc in cat["services"]):
+            return {"service": s, "category": {"sku": cat["sku"], "name": cat["name"], "icon": cat["icon"]}}
+    return {"service": s, "category": None}
+
+@api.post("/customer/addresses")
+async def add_address(body: AddressIn, user: dict = Depends(require_roles("customer"))):
+    addr = {"id": str(uuid.uuid4()), **body.dict(), "created_at": now_iso()}
+    await db.users.update_one({"id": user["id"]}, {"$push": {"addresses": addr}})
+    return addr
+
+@api.get("/customer/addresses")
+async def list_addresses(user: dict = Depends(require_roles("customer"))):
+    u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    return u.get("addresses", []) if u else []
+
+@api.post("/customer/bookings")
+async def create_booking(body: BookingCreate, user: dict = Depends(require_roles("customer"))):
+    svc = SKU_INDEX.get(body.service_sku)
+    if not svc:
+        raise HTTPException(404, "Service not found")
+    # Resolve address
+    addr = None
+    if body.address_id:
+        u = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+        addr = next((a for a in (u.get("addresses") or []) if a["id"] == body.address_id), None)
+    elif body.address:
+        addr = {"id": str(uuid.uuid4()), **body.address.dict()}
+        await db.users.update_one({"id": user["id"]}, {"$push": {"addresses": addr}})
+    if not addr:
+        raise HTTPException(400, "Address required")
+    # Find parent category for appliance_type
+    appliance = "Other"
+    for cat in CATALOG:
+        if any(s["sku"] == body.service_sku for s in cat["services"]):
+            appliance = cat["name"]; break
+    lid = str(uuid.uuid4())
+    lead = {
+        "id": lid,
+        "customer_name": user["name"], "phone": user["phone"],
+        "address": f"{addr['line1']}, {addr.get('line2') or ''} {addr['city']}".strip(),
+        "city": addr["city"],
+        "appliance_type": appliance,
+        "issue": f"{svc['name']}: {body.issue_note or '—'} | Slot: {body.slot_date} {body.slot_window}",
+        "priority": "medium", "source": "customer_app",
+        "status": "new",
+        "manager_id": None, "technician_id": None,
+        "cost_points": 0,
+        "estimated_cost": svc["price"], "final_cost": None,
+        "rating": None, "rating_comment": None,
+        "notes": [], "attachments": [],
+        "customer_id": user["id"],
+        "service_sku": body.service_sku, "service_name": svc["name"],
+        "slot_date": body.slot_date, "slot_window": body.slot_window,
+        "booking_address": addr,
+        "created_at": now_iso(),
+        "assigned_manager_at": None, "assigned_technician_at": None, "completed_at": None,
+    }
+    await db.leads.insert_one(lead)
+    # Auto-assign to a manager in same city (if any) with sufficient wallet
+    settings = await get_settings()
+    cost = settings.get("cost_per_lead", 200)
+    mgr = await db.users.find_one({"role": "manager", "city": addr["city"], "active": True, "wallet_balance": {"$gte": cost}})
+    if mgr:
+        try:
+            await _wallet_txn(mgr["id"], "debit", cost, f"Customer-app lead: {svc['name']}", lid)
+            await db.leads.update_one({"id": lid}, {"$set": {
+                "manager_id": mgr["id"], "status": "assigned_manager",
+                "cost_points": cost, "assigned_manager_at": now_iso(),
+            }})
+            await send_notification("whatsapp", mgr.get("phone") or mgr["email"], "lead_assigned_manager",
+                {"manager_name": mgr["name"], "appliance": appliance, "customer": user["name"],
+                 "city": addr["city"], "cost_points": cost}, user_id=mgr["id"], lead_id=lid)
+        except HTTPException:
+            pass
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    return lead
+
+@api.get("/customer/bookings")
+async def list_my_bookings(user: dict = Depends(require_roles("customer"))):
+    items = await db.leads.find({"customer_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    # Enrich with technician info if assigned
+    out = []
+    for b in items:
+        if b.get("technician_id"):
+            t = await db.users.find_one({"id": b["technician_id"]}, {"_id": 0, "password_hash": 0})
+            if t:
+                b["technician"] = {"id": t["id"], "name": t["name"], "phone": t.get("phone"),
+                                   "rating": t.get("rating"), "jobs_completed": t.get("jobs_completed"),
+                                   "location": t.get("location")}
+        out.append(b)
+    return out
+
+@api.get("/customer/bookings/{bid}")
+async def get_my_booking(bid: str, user: dict = Depends(require_roles("customer"))):
+    b = await db.leads.find_one({"id": bid, "customer_id": user["id"]}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    if b.get("technician_id"):
+        t = await db.users.find_one({"id": b["technician_id"]}, {"_id": 0, "password_hash": 0})
+        if t:
+            b["technician"] = {"id": t["id"], "name": t["name"], "phone": t.get("phone"),
+                               "rating": t.get("rating"), "jobs_completed": t.get("jobs_completed"),
+                               "location": t.get("location")}
+    return b
+
+class BookingCancelIn(BaseModel):
+    reason: Optional[str] = None
+
+@api.post("/customer/bookings/{bid}/cancel")
+async def cancel_my_booking(bid: str, body: BookingCancelIn, user: dict = Depends(require_roles("customer"))):
+    b = await db.leads.find_one({"id": bid, "customer_id": user["id"]})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    if b["status"] in ("completed", "cancelled"):
+        raise HTTPException(400, f"Already {b['status']}")
+    await db.leads.update_one({"id": bid}, {"$set": {"status": "cancelled"}, "$push": {"notes": {
+        "id": str(uuid.uuid4()), "by": user["id"], "by_name": user["name"],
+        "text": f"Customer cancelled: {body.reason or 'no reason'}", "at": now_iso(),
+    }}})
+    # 80% refund to manager if previously assigned
+    if b.get("manager_id") and b.get("cost_points"):
+        refund = int(b["cost_points"] * 0.8)
+        if refund > 0:
+            await _wallet_txn(b["manager_id"], "refund", refund, f"Customer cancelled: {b.get('customer_name')}", bid)
+    return await db.leads.find_one({"id": bid}, {"_id": 0})
+
+class BookingRateIn(BaseModel):
+    stars: int = Field(ge=1, le=5)
+    comment: Optional[str] = None
+
+@api.post("/customer/bookings/{bid}/rate")
+async def rate_my_booking(bid: str, body: BookingRateIn, user: dict = Depends(require_roles("customer"))):
+    b = await db.leads.find_one({"id": bid, "customer_id": user["id"]})
+    if not b:
+        raise HTTPException(404, "Booking not found")
+    await db.leads.update_one({"id": bid}, {"$set": {"rating": body.stars, "rating_comment": body.comment}})
+    if b.get("technician_id"):
+        pipeline = [
+            {"$match": {"technician_id": b["technician_id"], "rating": {"$ne": None}}},
+            {"$group": {"_id": None, "avg": {"$avg": "$rating"}}},
+        ]
+        res = await db.leads.aggregate(pipeline).to_list(1)
+        if res:
+            await db.users.update_one({"id": b["technician_id"]}, {"$set": {"rating": round(res[0]["avg"], 2)}})
+    return await db.leads.find_one({"id": bid}, {"_id": 0})
 
 # -----------------------------------------------------------------------------
 # Seeding
