@@ -180,6 +180,8 @@ class WalletRecharge(BaseModel):
 class SettingsUpdate(BaseModel):
     cost_per_lead: Optional[int] = None
     welcome_bonus_points: Optional[int] = None
+    upi_vpa: Optional[str] = None
+    upi_name: Optional[str] = None
 
 class BrandKitOrderIn(BaseModel):
     items: List[dict]  # [{sku, qty}]
@@ -300,11 +302,17 @@ async def get_settings() -> dict:
             "id": "global",
             "cost_per_lead": 200,
             "welcome_bonus_points": 500,
+            "upi_vpa": "gorepair@okhdfc",
+            "upi_name": "GO Repair",
             "brand_kit_items": DEFAULT_BRAND_KIT,
         }
         await db.settings.insert_one(s)
     if "brand_kit_items" not in s:
         s["brand_kit_items"] = DEFAULT_BRAND_KIT
+    if "upi_vpa" not in s:
+        s["upi_vpa"] = "gorepair@okhdfc"
+    if "upi_name" not in s:
+        s["upi_name"] = "GO Repair"
     return s
 
 @api.get("/settings")
@@ -648,6 +656,119 @@ async def wallet_recharge(body: WalletRecharge, user: dict = Depends(require_rol
     points = body.amount_inr
     txn = await _wallet_txn(user["id"], "recharge", points, f"Recharge ₹{body.amount_inr} (mock)")
     return {"ok": True, "txn": txn, "mode": "mock"}
+
+# -----------------------------------------------------------------------------
+# UPI QR-code recharge requests (manager pays via UPI, uploads receipt, admin approves)
+# -----------------------------------------------------------------------------
+@api.get("/wallet/upi-config")
+async def upi_config(user: dict = Depends(get_current_user)):
+    s = await get_settings()
+    return {"upi_vpa": s.get("upi_vpa", ""), "upi_name": s.get("upi_name", "GO Repair")}
+
+@api.post("/wallet/recharge-request")
+async def create_recharge_request(
+    amount_inr: int = Query(..., gt=0, le=200000),
+    note: Optional[str] = Query(None),
+    receipt: UploadFile = File(...),
+    user: dict = Depends(require_roles("manager")),
+):
+    name = receipt.filename or "receipt"
+    ext = ("." + name.rsplit(".", 1)[-1]).lower() if "." in name else ""
+    if ext not in ALLOWED_IMAGE_EXT and ext != ".pdf":
+        raise HTTPException(400, "Receipt must be an image or PDF")
+    contents = await receipt.read()
+    if len(contents) > 8 * 1024 * 1024:
+        raise HTTPException(400, "File too large (max 8 MB)")
+    fname = f"receipt_{user['id'][:8]}_{uuid.uuid4().hex}{ext}"
+    path = UPLOAD_DIR / fname
+    with open(path, "wb") as f:
+        f.write(contents)
+    doc = {
+        "id": str(uuid.uuid4()),
+        "manager_id": user["id"],
+        "manager_name": user["name"],
+        "manager_email": user["email"],
+        "amount_inr": amount_inr,
+        "points": amount_inr,  # 1:1 conversion
+        "receipt_url": f"/api/uploads/{fname}",
+        "receipt_filename": name,
+        "note": note or "",
+        "status": "pending",
+        "admin_note": "",
+        "reviewed_by": None,
+        "reviewed_at": None,
+        "created_at": now_iso(),
+    }
+    await db.recharge_requests.insert_one(doc)
+    # Notify admins via mock notification system
+    admins = await db.users.find({"role": "super_admin"}).to_list(10)
+    for a in admins:
+        await send_notification(
+            "push", a.get("phone") or a["email"], "wallet_low",
+            {"balance": amount_inr},
+            user_id=a["id"],
+        )
+    doc.pop("_id", None)
+    return doc
+
+@api.get("/wallet/recharge-requests")
+async def list_recharge_requests(
+    status: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    q: dict = {}
+    if status:
+        q["status"] = status
+    if user["role"] == "manager":
+        q["manager_id"] = user["id"]
+    elif user["role"] != "super_admin":
+        raise HTTPException(403, "Forbidden")
+    items = await db.recharge_requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+class RechargeReviewIn(BaseModel):
+    admin_note: Optional[str] = None
+
+@api.post("/wallet/recharge-requests/{rid}/approve")
+async def approve_recharge(rid: str, body: RechargeReviewIn, admin: dict = Depends(require_roles("super_admin"))):
+    req = await db.recharge_requests.find_one({"id": rid})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(400, f"Already {req['status']}")
+    txn = await _wallet_txn(
+        req["manager_id"], "recharge", req["points"],
+        f"UPI recharge ₹{req['amount_inr']} (approved)",
+    )
+    await db.recharge_requests.update_one(
+        {"id": rid},
+        {"$set": {
+            "status": "approved",
+            "admin_note": body.admin_note or "",
+            "reviewed_by": admin["id"],
+            "reviewed_at": now_iso(),
+            "txn_id": txn["id"],
+        }},
+    )
+    return {"ok": True, "txn": txn}
+
+@api.post("/wallet/recharge-requests/{rid}/reject")
+async def reject_recharge(rid: str, body: RechargeReviewIn, admin: dict = Depends(require_roles("super_admin"))):
+    req = await db.recharge_requests.find_one({"id": rid})
+    if not req:
+        raise HTTPException(404, "Request not found")
+    if req["status"] != "pending":
+        raise HTTPException(400, f"Already {req['status']}")
+    await db.recharge_requests.update_one(
+        {"id": rid},
+        {"$set": {
+            "status": "rejected",
+            "admin_note": body.admin_note or "Rejected",
+            "reviewed_by": admin["id"],
+            "reviewed_at": now_iso(),
+        }},
+    )
+    return {"ok": True}
 
 # -----------------------------------------------------------------------------
 # Brand Kit

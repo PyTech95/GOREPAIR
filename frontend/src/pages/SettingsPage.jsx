@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
-import { Settings as SettingsIcon } from "lucide-react";
+import { Settings as SettingsIcon, QrCode } from "lucide-react";
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
   const [costPerLead, setCostPerLead] = useState(200);
   const [welcome, setWelcome] = useState(500);
+  const [upiVpa, setUpiVpa] = useState("");
+  const [upiName, setUpiName] = useState("GO Repair");
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -14,6 +16,8 @@ export default function SettingsPage() {
       setSettings(r.data);
       setCostPerLead(r.data.cost_per_lead);
       setWelcome(r.data.welcome_bonus_points);
+      setUpiVpa(r.data.upi_vpa || "");
+      setUpiName(r.data.upi_name || "GO Repair");
     }).catch((e) => toast.error(formatApiError(e)));
   }, []);
 
@@ -23,6 +27,8 @@ export default function SettingsPage() {
       const { data } = await api.put("/settings", {
         cost_per_lead: Number(costPerLead),
         welcome_bonus_points: Number(welcome),
+        upi_vpa: upiVpa,
+        upi_name: upiName,
       });
       setSettings(data);
       toast.success("Settings saved");
@@ -58,6 +64,26 @@ export default function SettingsPage() {
           <button className="gr-btn gr-btn-primary" onClick={save} disabled={saving} data-testid="save-settings-btn">
             {saving ? "Saving…" : "Save settings"}
           </button>
+        </div>
+      </div>
+
+      <div className="gr-card">
+        <div className="flex items-center gap-2 mb-4">
+          <QrCode size={16} className="text-neutral-400" />
+          <div className="font-display font-bold text-lg">UPI receiver (for manager recharge QR)</div>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="gr-label">UPI VPA (Virtual Payment Address)</label>
+            <input className="gr-input" placeholder="gorepair@okhdfc" value={upiVpa}
+              onChange={(e) => setUpiVpa(e.target.value)} data-testid="upi-vpa-input" />
+            <div className="text-xs text-neutral-500 mt-1">Managers will scan this in their UPI app when recharging.</div>
+          </div>
+          <div>
+            <label className="gr-label">Display name on QR</label>
+            <input className="gr-input" value={upiName} onChange={(e) => setUpiName(e.target.value)} data-testid="upi-name-input" />
+            <div className="text-xs text-neutral-500 mt-1">Shown to managers as "Pay to" in their UPI app.</div>
+          </div>
         </div>
       </div>
 
