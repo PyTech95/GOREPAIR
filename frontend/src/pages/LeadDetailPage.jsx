@@ -123,7 +123,7 @@ export default function LeadDetailPage() {
 
   return (
     <div className="space-y-6" data-testid="lead-detail">
-      <Link to="/leads" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900"><ArrowLeft size={14} /> Back to leads</Link>
+      <Link to="/console/leads" className="inline-flex items-center gap-2 text-sm text-neutral-500 hover:text-neutral-900"><ArrowLeft size={14} /> Back to leads</Link>
 
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>

@@ -17,7 +17,10 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
-  if (user) return <Navigate to="/" replace />;
+  if (user) {
+    if (user.role === "customer") return <Navigate to="/" replace />;
+    return <Navigate to="/console" replace />;
+  }
 
   const submit = async (e) => {
     e?.preventDefault?.();
@@ -26,7 +29,7 @@ export default function LoginPage() {
     setLoading(false);
     if (!r.ok) { toast.error(r.error || "Login failed"); return; }
     toast.success(`Welcome back, ${r.user.name}`);
-    nav("/");
+    nav(r.user.role === "customer" ? "/" : "/console");
   };
 
   const quickFill = (q) => { setEmail(q.email); setPassword(q.password); };

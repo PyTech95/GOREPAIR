@@ -42,7 +42,7 @@ export default function DashboardPage() {
           <p className="text-neutral-500 text-sm mt-2">Here's your ops snapshot in real time.</p>
         </div>
         {user?.role !== "technician" && (
-          <Link to="/leads" className="gr-btn gr-btn-outline" data-testid="go-leads-btn">
+          <Link to="/console/leads" className="gr-btn gr-btn-outline" data-testid="go-leads-btn">
             View all leads <ArrowUpRight size={15} />
           </Link>
         )}
@@ -98,7 +98,7 @@ export default function DashboardPage() {
             <div className="font-display font-bold">Get your GO Repair Brand Kit</div>
             <div className="text-sm text-neutral-600">Order your T-shirts, bill book, and starter tools to go live as a certified operator.</div>
           </div>
-          <Link to="/brand-kit" className="gr-btn gr-btn-primary" data-testid="brand-kit-cta">Open Brand Kit Store</Link>
+          <Link to="/console/brand-kit" className="gr-btn gr-btn-primary" data-testid="brand-kit-cta">Open Brand Kit Store</Link>
         </div>
       )}
 
@@ -110,7 +110,7 @@ export default function DashboardPage() {
               <div className="gr-overline">Recent Leads</div>
               <div className="font-display font-bold text-lg mt-0.5">Latest activity</div>
             </div>
-            <Link to="/leads" className="text-xs font-semibold text-[#ff5f1f] hover:underline">View all</Link>
+            <Link to="/console/leads" className="text-xs font-semibold text-[#ff5f1f] hover:underline">View all</Link>
           </div>
           <div className="overflow-x-auto">
             <table className="gr-table">

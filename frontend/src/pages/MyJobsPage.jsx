@@ -42,7 +42,7 @@ export default function MyJobsPage() {
       <div className="grid md:grid-cols-2 gap-4">
         {filtered.length === 0 && <div className="gr-card text-center py-12 text-neutral-400 md:col-span-2">No jobs in this view.</div>}
         {filtered.map((j) => (
-          <Link to={`/leads/${j.id}`} key={j.id} className="gr-card gr-card-hover block" data-testid={`job-${j.id}`}>
+          <Link to={`/console/leads/${j.id}`} key={j.id} className="gr-card gr-card-hover block" data-testid={`job-${j.id}`}>
             <div className="flex items-start justify-between mb-3">
               <div>
                 <div className="gr-overline">{j.appliance_type}</div>

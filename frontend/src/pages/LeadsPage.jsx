@@ -96,7 +96,7 @@ export default function LeadsPage() {
           <div className="flex gap-2 items-center">
             {isAdmin && settings && (
               <Link
-                to="/settings"
+                to="/console/settings"
                 className="hidden sm:flex items-center gap-1.5 px-3 py-2 border border-neutral-200 hover:border-[#ff5f1f] transition-colors gr-sharp"
                 title="Configure default cost per lead"
                 data-testid="cost-per-lead-pill"
@@ -227,7 +227,7 @@ export default function LeadsPage() {
                             <FileText size={10} /> Invoice
                           </span>
                         )}
-                        <Link to={`/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
+                        <Link to={`/console/leads/${l.id}`} className="text-[#ff5f1f] font-semibold text-xs hover:underline" data-testid={`open-lead-${l.id}`}>
                           Open →
                         </Link>
                       </div>
