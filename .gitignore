@@ -90,3 +90,10 @@ frontend/node_modules/.cache/default-development/6.pack
 frontend/node_modules/.cache/default-development/0.pack
 frontend/node_modules/.cache/default-development/8.pack_
 frontend/node_modules/.cache/default-development/8.pack_
+.env
+.env.*
+*.env
+credentials.json
+*.key
+.credentials
+frontend/node_modules/.cache/default-development/8.pack
