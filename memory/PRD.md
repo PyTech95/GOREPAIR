@@ -13,6 +13,11 @@ Build a scalable SaaS CRM platform for a home appliance repair service company i
 - **Frontend** React 19 + React Router v7 + Tailwind. Swiss-brutalist aesthetic (Cabinet Grotesk + Chivo, Signal Orange #FF5F1F + Obsidian Black).
 - **Collections** users, leads, transactions, brand_kit_orders, settings.
 
+## Added (Feb 2026 — v1.4)
+- **Live GPS tracking on customer track page** — Leaflet map with technician marker on `/track/:bid` (data-testids `tech-live-map`, `live-map-container`, `live-map-empty`). Freshness indicator with pulsing green/amber dot, "Open map ↗" external OSM link, auto-refresh via existing polling.
+- **Axios 401 interceptor** — auto-clears stale token, shows "Session expired" toast, and redirects to `/customer/login` or `/login` based on current path.
+- **Full E2E tested via testing_agent_v3_fork** — 22/23 iter4 backend tests pass, 100% frontend flows pass. Report at `/app/test_reports/iteration_3.json`. Two pre-existing regressions (not iter4-related) noted as low-priority.
+
 ## Added (Feb 2026 — v1.3)
 - **Customer marketplace shell** — `/` is now the public Customer Landing page (hero, 9 appliance categories, trust band, "How it works"). Staff console moved to `/console/*`. New routes: `/services`, `/book/:sku`, `/customer/login`, `/customer/register`, `/my-bookings`, `/track/:bid`. Staff login at `/login` redirects to `/console`; customers and unauth users land on `/`.
 - **Admin/Manager password reset** — `POST /api/users/{uid}/reset-password` (body `{new_password}`, min 6 chars). Super admin can reset any non-customer staff user. Manager can reset only their own technicians. UsersPage shows a "Reset PW" button per row with a dialog (auto-generates a 10-char password, copy-to-clipboard on success). Customer passwords are excluded (they have a self-service flow).
