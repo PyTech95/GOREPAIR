@@ -11,6 +11,9 @@ import uuid
 import logging
 import asyncio
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 from typing import Optional, List, Literal
 
 import io
@@ -1138,7 +1141,7 @@ def _build_invoice_pdf(lead: dict, manager: Optional[dict], technician: Optional
     c.setFont("Helvetica-Bold", 10)
     c.drawRightString(W - 18 * mm, H - 12 * mm, f"Invoice #{lead['id'][:8].upper()}")
     c.setFont("Helvetica", 9)
-    c.drawRightString(W - 18 * mm, H - 18 * mm, f"Date: {datetime.now(timezone.utc).strftime('%d %b %Y')}")
+    c.drawRightString(W - 18 * mm, H - 18 * mm, f"Date: {datetime.now(IST).strftime('%d %b %Y')}")
     c.drawRightString(W - 18 * mm, H - 23 * mm, "GSTIN: 07AAACG0000Z1Z5")
 
     # Billed to
@@ -1655,7 +1658,7 @@ async def seed():
             "password_hash": hash_password(ADMIN_PASSWORD),
             "name": "Super Admin",
             "role": "super_admin",
-            "phone": "+91-9000000000",
+            "phone": "+91-9905231750",
             "city": "Delhi",
             "active": True,
             "created_at": now_iso(),

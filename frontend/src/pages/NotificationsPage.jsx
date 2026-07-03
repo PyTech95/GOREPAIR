@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { toast } from "sonner";
 import { MessageSquare, Phone, Bell } from "lucide-react";
+import { fmtISTDateTime } from "@/lib/date";
 
 const CHANNEL_ICON = { sms: Phone, whatsapp: MessageSquare, push: Bell };
 
@@ -38,7 +39,7 @@ export default function NotificationsPage() {
                 const Icon = CHANNEL_ICON[n.channel] || Bell;
                 return (
                   <tr key={n.id} data-testid={`notify-${n.id}`}>
-                    <td className="font-mono text-xs">{new Date(n.created_at).toLocaleString("en-IN")}</td>
+                    <td className="font-mono text-xs">{fmtISTDateTime(n.created_at)}</td>
                     <td>
                       <span className="gr-badge assigned_technician inline-flex items-center gap-1">
                         <Icon size={10} /> {n.channel}

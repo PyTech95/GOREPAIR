@@ -4,6 +4,7 @@ import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Plus, Search, Filter, Upload, FileText, Users as UsersIcon, CheckSquare, Square, X, Coins, Lock } from "lucide-react";
+import { fmtISTDate } from "@/lib/date";
 
 const APPLIANCES = ["AC", "Washing Machine", "Fridge", "TV", "Microwave", "Water Purifier", "Geyser", "Other"];
 const SOURCES = ["website", "facebook", "google", "whatsapp", "manual", "referral", "justdial"];
@@ -219,7 +220,7 @@ export default function LeadsPage() {
                     <td><span className={`gr-badge ${l.priority}`}>{l.priority}</span></td>
                     <td><span className="gr-badge new">{l.source}</span></td>
                     <td><span className={`gr-badge ${l.status}`}>{l.status.replace("_", " ")}</span></td>
-                    <td className="text-neutral-500 text-xs">{new Date(l.created_at).toLocaleDateString("en-IN")}</td>
+                    <td className="text-neutral-500 text-xs">{fmtISTDate(l.created_at)}</td>
                     <td>
                       <div className="flex items-center gap-2">
                         {l.status === "completed" && l.final_cost && (

@@ -4,6 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { Wallet, ArrowDownRight, ArrowUpRight, Zap, CreditCard, QrCode, Check, X as XIcon, Upload, Clock } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
+import { fmtISTDateTime } from "@/lib/date";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL;
 
@@ -174,7 +175,7 @@ export default function WalletPage() {
                 <tbody>
                   {requests.map((r) => (
                     <tr key={r.id} data-testid={`req-${r.id}`}>
-                      <td className="font-mono text-xs">{new Date(r.created_at).toLocaleString("en-IN")}</td>
+                      <td className="font-mono text-xs">{fmtISTDateTime(r.created_at)}</td>
                       <td className="font-bold">₹{r.amount_inr.toLocaleString("en-IN")}</td>
                       <td>
                         <a href={`${BACKEND}${r.receipt_url}`} target="_blank" rel="noreferrer" className="text-[#ff5f1f] text-xs hover:underline">view</a>
@@ -303,7 +304,7 @@ export default function WalletPage() {
               {txns.length === 0 && <tr><td colSpan={5} className="text-center py-8 text-neutral-400">No transactions</td></tr>}
               {txns.map((t) => (
                 <tr key={t.id} data-testid={`txn-${t.id}`}>
-                  <td className="font-mono text-xs">{new Date(t.created_at).toLocaleString("en-IN")}</td>
+                  <td className="font-mono text-xs">{fmtISTDateTime(t.created_at)}</td>
                   <td>
                     <span className={`gr-badge ${t.delta > 0 ? "completed" : "cancelled"}`}>
                       {t.delta > 0 ? <ArrowUpRight size={10} className="inline -mt-0.5 mr-1" /> : <ArrowDownRight size={10} className="inline -mt-0.5 mr-1" />}

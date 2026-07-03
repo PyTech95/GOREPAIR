@@ -4,6 +4,7 @@ import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Calendar, MapPin, LogOut, FileText, Plus } from "lucide-react";
+import { fmtISTDate, fmtSlotWindow } from "@/lib/date";
 
 const STATUS_LABEL = {
   new: "Awaiting dispatch",
@@ -60,7 +61,7 @@ export default function MyBookings() {
               <div className="min-w-0">
                 <div className="font-display font-bold text-lg leading-tight">{b.service_name || b.appliance_type}</div>
                 <div className="text-xs text-neutral-500 mt-1 flex items-center gap-1 flex-wrap">
-                  <Calendar size={11} /> {b.slot_date} · {b.slot_window} <span className="text-neutral-300">·</span>
+                  <Calendar size={11} /> {fmtISTDate(b.slot_date)} · {fmtSlotWindow(b.slot_window)} IST <span className="text-neutral-300">·</span>
                   <MapPin size={11} /> {b.city}
                 </div>
               </div>

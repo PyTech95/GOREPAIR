@@ -33,7 +33,8 @@ const TRUST_TICKER = [
   "BUILT FOR INDIA",
 ];
 
-const SUPPORT_TEL = "+919000000000";
+const SUPPORT_TEL = "+919905231750";
+const SUPPORT_TEL_DISPLAY = "+91 99052 31750";
 
 /* ---------------- Animated counter ---------------- */
 function Counter({ to, suffix = "", duration = 1.6, decimals = 0 }) {
@@ -548,7 +549,7 @@ export default function CustomerLanding() {
                 className="inline-flex items-center justify-center gap-2 border-2 border-white font-bold px-6 py-4 text-base sm:text-lg transition-all hover:bg-white hover:text-[#0a0a0a]"
                 data-testid="footer-call-cta"
               >
-                <Phone size={16} /> {SUPPORT_TEL.replace("+91", "+91 ")}
+                <Phone size={16} /> {SUPPORT_TEL_DISPLAY}
               </a>
             </div>
           </div>
@@ -573,7 +574,7 @@ export default function CustomerLanding() {
             <span className="text-xs font-mono text-neutral-500 ml-3">© 2026 · BUILT FOR INDIA</span>
           </div>
           <div className="flex items-center sm:justify-end gap-5 text-sm text-neutral-600">
-            <a href={`tel:${SUPPORT_TEL}`} className="nav-link">Support · +91 90000 00000</a>
+            <a href={`tel:${SUPPORT_TEL}`} className="nav-link">Support · {SUPPORT_TEL_DISPLAY}</a>
             <Link to="/login" className="nav-link" data-testid="footer-partner-login">Partner login</Link>
           </div>
         </div>

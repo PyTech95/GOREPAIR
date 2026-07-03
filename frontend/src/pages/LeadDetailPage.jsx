@@ -5,6 +5,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Sparkles, UserCheck, Star, FileDown, ImagePlus, X as XIcon } from "lucide-react";
 import { API } from "@/lib/api";
+import { fmtISTDate, fmtISTDateTime } from "@/lib/date";
 
 export default function LeadDetailPage() {
   const { lid } = useParams();
@@ -365,7 +366,7 @@ export default function LeadDetailPage() {
             <div className="space-y-3">
               {(lead.notes || []).slice().reverse().map((n) => (
                 <div key={n.id} className="border-l-2 border-[#ff5f1f] pl-3 py-1">
-                  <div className="text-xs text-neutral-500"><span className="font-semibold text-neutral-800">{n.by_name}</span> · {new Date(n.at).toLocaleString("en-IN")}</div>
+                  <div className="text-xs text-neutral-500"><span className="font-semibold text-neutral-800">{n.by_name}</span> · {fmtISTDateTime(n.at)}</div>
                   <div className="text-sm mt-0.5">{n.text}</div>
                 </div>
               ))}
@@ -383,11 +384,11 @@ export default function LeadDetailPage() {
           <div className="gr-card">
             <div className="gr-overline mb-2">Pipeline</div>
             <ol className="space-y-2 text-sm">
-              <Step on={true} label="Lead captured" sub={new Date(lead.created_at).toLocaleString("en-IN")} />
-              <Step on={!!lead.assigned_manager_at} label={`Assigned to ${mgr?.name || "manager"}`} sub={lead.assigned_manager_at && new Date(lead.assigned_manager_at).toLocaleString("en-IN")} />
-              <Step on={!!lead.assigned_technician_at} label={`Assigned to ${tech?.name || "technician"}`} sub={lead.assigned_technician_at && new Date(lead.assigned_technician_at).toLocaleString("en-IN")} />
+              <Step on={true} label="Lead captured" sub={fmtISTDateTime(lead.created_at)} />
+              <Step on={!!lead.assigned_manager_at} label={`Assigned to ${mgr?.name || "manager"}`} sub={fmtISTDateTime(lead.assigned_manager_at)} />
+              <Step on={!!lead.assigned_technician_at} label={`Assigned to ${tech?.name || "technician"}`} sub={fmtISTDateTime(lead.assigned_technician_at)} />
               <Step on={lead.status === "in_progress" || lead.status === "completed"} label="In progress" />
-              <Step on={lead.status === "completed"} label="Completed" sub={lead.completed_at && new Date(lead.completed_at).toLocaleString("en-IN")} />
+              <Step on={lead.status === "completed"} label="Completed" sub={fmtISTDateTime(lead.completed_at)} />
             </ol>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ShoppingBag, Check, Package } from "lucide-react";
+import { fmtISTDate } from "@/lib/date";
 
 export default function BrandKitPage() {
   const { user, refresh } = useAuth();
@@ -109,7 +110,7 @@ export default function BrandKitPage() {
               <tbody>
                 {orders.map((o) => (
                   <tr key={o.id} data-testid={`order-${o.id}`}>
-                    <td className="font-mono text-xs">{new Date(o.created_at).toLocaleDateString("en-IN")}</td>
+                    <td className="font-mono text-xs">{fmtISTDate(o.created_at)}</td>
                     <td className="whitespace-normal">{o.items.map((i) => `${i.qty}× ${i.name}`).join(", ")}</td>
                     <td className="font-mono font-bold">{o.total_points}</td>
                     <td><span className="gr-badge in_progress"><Check size={10} className="inline -mt-0.5 mr-1" /> {o.status}</span></td>

@@ -4,17 +4,29 @@ import { api, formatApiError } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, MapPin, Calendar, Clock, Check, IndianRupee } from "lucide-react";
+import { istDateISO, fmtSlotWindow } from "@/lib/date";
 
 const SLOTS = ["08:00-10:00", "10:00-12:00", "12:00-14:00", "14:00-16:00", "16:00-18:00", "18:00-20:00"];
 
 function nextNDays(n) {
   const days = [];
+  const today = new Date();
   for (let i = 0; i < n; i++) {
-    const d = new Date(); d.setDate(d.getDate() + i);
-    days.push({
-      iso: d.toISOString().slice(0, 10),
-      label: i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short" }),
-    });
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const iso = istDateISO(d);
+    const label =
+      i === 0
+        ? "Today"
+        : i === 1
+        ? "Tomorrow"
+        : d.toLocaleDateString("en-IN", {
+            timeZone: "Asia/Kolkata",
+            weekday: "short",
+            day: "numeric",
+            month: "short",
+          });
+    days.push({ iso, label });
   }
   return days;
 }
@@ -124,7 +136,7 @@ export default function BookingPage() {
                   <button key={s} onClick={() => setSlot(s)}
                     className={`px-3 py-3 border font-mono text-sm ${slot === s ? "border-[#ff5f1f] bg-orange-50 text-[#ff5f1f] font-bold" : "border-neutral-200 hover:border-neutral-400"}`}
                     data-testid={`slot-${s}`}>
-                    {s}
+                    {fmtSlotWindow(s)}
                   </button>
                 ))}
               </div>
@@ -187,7 +199,7 @@ export default function BookingPage() {
             <div className="gr-overline">Review & confirm</div>
             <div className="space-y-3 text-sm">
               <Row label="Service" value={svc.name} />
-              <Row label="Date & time" value={`${days.find((d) => d.iso === date)?.label} · ${slot}`} />
+              <Row label="Date & time" value={`${days.find((d) => d.iso === date)?.label} · ${fmtSlotWindow(slot)} IST`} />
               <Row label="Address" value={addrPick
                 ? (() => { const a = addresses.find((x) => x.id === addrPick); return a ? `${a.line1}, ${a.city}` : "—"; })()
                 : `${newAddr.line1}, ${newAddr.city}`} />

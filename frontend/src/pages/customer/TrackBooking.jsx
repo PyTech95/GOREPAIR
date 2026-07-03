@@ -4,6 +4,7 @@ import { api, formatApiError, API } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { ArrowLeft, Phone, Star, Check, X, FileDown, MapPin, Calendar, Clock } from "lucide-react";
+import { fmtISTDate, fmtSlotWindow } from "@/lib/date";
 
 const STAGES = [
   { key: "confirmed", label: "Confirmed", match: (s) => ["new", "assigned_manager", "assigned_technician", "in_progress", "completed"].includes(s) },
@@ -72,7 +73,7 @@ export default function TrackBooking() {
           <div className="gr-overline">{b.appliance_type}</div>
           <h1 className="font-display font-black text-2xl tracking-tighter mt-1">{b.service_name || b.issue}</h1>
           <div className="mt-3 text-xs text-neutral-500 space-y-1">
-            <div className="flex items-center gap-1"><Calendar size={11} /> {b.slot_date} · {b.slot_window}</div>
+            <div className="flex items-center gap-1"><Calendar size={11} /> {fmtISTDate(b.slot_date)} · {fmtSlotWindow(b.slot_window)} IST</div>
             <div className="flex items-center gap-1"><MapPin size={11} /> {b.address || b.city}</div>
           </div>
         </div>
