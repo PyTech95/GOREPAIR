@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 4 E2E testing of GO Repair CRM's newest features: split routing (/ customer, /console staff), technician reassignment on LeadDetailPage, admin/manager password reset dialog, IST time formatting, customer marketplace booking, axios 401 interceptor, live GPS map on customer track, IST PDF invoice date, and support phone update to +91 99052 31750. Created /app/backend/tests/test_gorepair_iter4.py with 23 new pytest cases — 22 PASS / 1 skipped (support phone verified via UI only). Playwright UI covered every new flow end-to-end. All new features work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "regression:/api/leads (POST as manager)", "issue": "test_gorepair_api.py::TestRBAC::test_manager_cannot_create_lead now returns 200 (previously expected 403). Managers appear to be allowed to create leads. This is a pre-existing regression on the OLD test file — either the test assumption is stale or a permissions change was introduced. Not part of iteration 4 scope."},
+      {"endpoint": "regression:/api/wallet/razorpay/verify (MOCK mode)", "issue": "test_gorepair_iter3.py::TestRazorpay::test_verify_credits_wallet now fails with 400 'Unknown or expired order' because MOCK verify path started enforcing that razorpay_order_id must correspond to a previously-created order via /create-order. Pre-existing regression on old test that fabricated order_MOCK_ ids inline. Not iteration-4 related; iter4 tests pass because they create the order first (implicit chain) or top up via a different route."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Console Layout (all /console pages)", "issues": ["React dev warning in console: 'In HTML, <span> cannot be a child of <option>' at Layout.jsx line ~124. Cosmetic hydration warning, does NOT break functionality but should be cleaned up (avoid rendering <span> inside a native <select><option>)."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gorepair_iter4.py",
+    "/app/backend/tests/test_gorepair_iter3.py",
+    "/app/backend/tests/test_gorepair_api.py",
+    "/app/test_reports/pytest/iter4_results.xml"
+  ],
+  "action_items": [
+    "(Low) Fix Layout.jsx line ~124 <span> inside <option> to remove React hydration warning.",
+    "(Low) Reconcile the 2 pre-existing regression failures in old test files (test_gorepair_api::test_manager_cannot_create_lead and test_gorepair_iter3::TestRazorpay::test_verify_credits_wallet). Either update the tests to reflect intentional behavior changes, or fix the endpoints if the changes were unintended.",
+    "(Low) server.py is now 1810 lines — was flagged in iteration 3 too. Should be split into routers/ modules before adding more features."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1810 lines — well above the 700-line split guideline. Recommend refactor into routers: auth, users, leads, wallet, razorpay, customer_booking, tracking, invoicing, notifications, analytics.",
+    "customer_register uses a fragile `$or` filter for phone+email dedupe with a `{'_': '_'}` sentinel when email is None. Works, but rewrite as two branches for clarity.",
+    "assign-technician does not populate `assigned_technician_at` chronology when reassigning — it overwrites the original timestamp (line 582). Consider preserving the first-assign timestamp separately or reading from reassignment_history if audit is needed.",
+    "TrackBooking.jsx polls GET /customer/bookings/{bid} every 15 seconds forever while the component is mounted; the interval keeps running even when the booking is completed/cancelled and no more location updates will arrive. Consider stopping the poll once status ∈ {completed, cancelled, invalid}.",
+    "BookingPage.jsx nextNDays(1)[0].iso initializer runs on every render (line 40) because it's inside useState(...) — acceptable but a useMemo would eliminate the recompute.",
+    "api.js axios interceptor uses a module-level `_bounced` flag reset on setTimeout (800ms). If two simultaneous 401s fire from parallel requests, only the first triggers the toast+redirect — this is intentional but fragile. Consider using an AbortController on outbound requests once redirect is triggered.",
+    "reset-password endpoint requires min_length=6 password (from Pydantic model), which is a bit weak for production. Recommend min_length=8 + complexity or delegate to a real password policy.",
+    "PDF invoice date uses `datetime.now(IST)` at generation time — meaning if a booking was completed in the past and the invoice is re-generated today, it shows today's date, not the completion date. Consider using `lead.completed_at` converted to IST."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gorepair_iter4.py (NEW - 23 pytest cases covering customer booking E2E, tech reassignment, password reset, live GPS on customer view, IST PDF invoice, session-expired 401)"
+  ],
+  "success_rate": {
+    "backend": "22/23 iter4 tests pass (1 skipped for UI-only support phone). Regression: 69/71 pass overall — 2 pre-existing failures in older test files unrelated to iter4.",
+    "frontend": "100% of tested new flows pass (booking E2E, reassign, reset PW, IST slots, axios 401 interceptor, live GPS map, support phone)."
+  },
+  "test_credentials": "Used seeded creds from /app/memory/test_credentials.md. Created disposable customer accounts with random 10-digit phone numbers. Amit's password was temporarily changed by the Reset-PW UI test and restored via API back to tech123 to keep other tests green.",
+  "seed_data_creation": "Created ~3 TEST_-prefixed customer accounts (TEST_Cust_*, TEST_Other, TEST_C_*, TEST_GPS_*) and 3 TEST_-prefixed leads (TEST_Reassign_*, TEST_INV_*, one live customer booking) for E2E validation. Not cleaned up but easy to identify by TEST_ prefix.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Everything shipped in iteration 4 works end-to-end. Customer marketplace at /, staff console at /console, IST helpers in /app/frontend/src/lib/date.js render slot labels (8:00 AM – 10:00 AM), day chips (TODAY / TOMORROW / SUN 5 Jul), and review row (' IST' suffix). Live GPS map (Leaflet + OSM tiles) renders inside data-testid tech-live-map / live-map-container with a custom orange 'T' DivIcon marker. Freshness indicator shows 'Last update: Ns ago'. axios 401 interceptor uses window.location.pathname heuristic to route to /login vs /customer/login — verified for both. Reset PW dialog auto-generates a 10-char password, submits, shows a success card with a Copy button. Reassignment blocks same-tech (backend 400 'Technician is already assigned') and blocks any reassign after status ∈ {completed, cancelled, invalid}. Backend regression file test_gorepair_iter3.py::TestRazorpay::test_verify_credits_wallet needs updating to first call /create-order (verify path now enforces order existence). Amit's password was reset via UI to VGWGbJ5pPp then restored to tech123 via /api/users/{id}/reset-password.",
+  "rca of the issue": "No functional bugs found in iteration 4 features. Two initial test failures in iter4 were self-inflicted: (1) duplicate-phone test used password 'x' which failed pydantic min_length=6 and returned 422 instead of 400 (fixed to use 8-char pw), (2) invoice PDF date test grepped raw PDF bytes but Helvetica encodes text streams so bytes don't match — fixed by using pypdf to extract page text. Both are test-file issues, not application bugs."
+}

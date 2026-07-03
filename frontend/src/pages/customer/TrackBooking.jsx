@@ -3,8 +3,37 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { api, formatApiError, API } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { ArrowLeft, Phone, Star, Check, X, FileDown, MapPin, Calendar, Clock } from "lucide-react";
+import { ArrowLeft, Phone, Star, Check, X, FileDown, MapPin, Calendar, Clock, Navigation } from "lucide-react";
+import { MapContainer, TileLayer, CircleMarker, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
 import { fmtISTDate, fmtSlotWindow } from "@/lib/date";
+
+function locFreshness(iso) {
+  if (!iso) return { text: "—", stale: true };
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return { text: `${Math.round(s)}s ago`, stale: false };
+  if (s < 300) return { text: `${Math.round(s / 60)} min ago`, stale: false };
+  if (s < 3600) return { text: `${Math.round(s / 60)} min ago`, stale: true };
+  if (s < 86400) return { text: `${Math.round(s / 3600)}h ago`, stale: true };
+  return { text: `${Math.round(s / 86400)}d ago`, stale: true };
+}
+
+function FitToMarker({ lat, lng }) {
+  const map = useMap();
+  useEffect(() => {
+    if (lat && lng) map.setView([lat, lng], 14, { animate: true });
+  }, [lat, lng, map]);
+  return null;
+}
+
+// Custom orange technician marker icon (SVG data URI, no external asset needed)
+const techIcon = new L.DivIcon({
+  html: `<div style="width:34px;height:34px;background:#ff5f1f;border:3px solid #0a0a0a;border-radius:50%;box-shadow:0 4px 12px rgba(255,95,31,.45);display:flex;align-items:center;justify-content:center;color:white;font-weight:900;font-family:sans-serif;font-size:14px">T</div>`,
+  className: "",
+  iconSize: [34, 34],
+  iconAnchor: [17, 17],
+});
 
 const STAGES = [
   { key: "confirmed", label: "Confirmed", match: (s) => ["new", "assigned_manager", "assigned_technician", "in_progress", "completed"].includes(s) },
@@ -130,6 +159,82 @@ export default function TrackBooking() {
                 </a>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Live technician tracking (only when assigned + not finished) */}
+        {b.technician && !["completed", "cancelled", "invalid"].includes(b.status) && (
+          <div className="bg-white border border-neutral-200 overflow-hidden" data-testid="tech-live-map">
+            <div className="p-5 pb-3 flex items-center justify-between gap-3">
+              <div>
+                <div className="gr-overline flex items-center gap-1.5">
+                  <Navigation size={12} className="text-[#ff5f1f]" /> Live tracking
+                </div>
+                <div className="text-xs text-neutral-500 mt-1">
+                  {b.technician.location
+                    ? (() => {
+                        const { text, stale } = locFreshness(b.technician.location.updated_at);
+                        return (
+                          <span className={stale ? "text-amber-600" : "text-green-700"}>
+                            <span className={`inline-block h-2 w-2 rounded-full mr-1.5 align-middle ${stale ? "bg-amber-500" : "bg-green-500 animate-pulse"}`} />
+                            Last update: {text}
+                          </span>
+                        );
+                      })()
+                    : <span className="text-neutral-400">Technician hasn't started sharing location yet</span>}
+                </div>
+              </div>
+              {b.technician.location && (
+                <a
+                  href={`https://www.openstreetmap.org/?mlat=${b.technician.location.lat}&mlon=${b.technician.location.lng}#map=15/${b.technician.location.lat}/${b.technician.location.lng}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="gr-btn gr-btn-outline text-[11px] py-1.5 px-2.5 shrink-0"
+                  data-testid="open-in-osm"
+                >
+                  Open map ↗
+                </a>
+              )}
+            </div>
+
+            {b.technician.location ? (
+              <div className="h-64 sm:h-80 w-full" data-testid="live-map-container">
+                <MapContainer
+                  center={[b.technician.location.lat, b.technician.location.lng]}
+                  zoom={14}
+                  scrollWheelZoom={false}
+                  style={{ height: "100%", width: "100%" }}
+                >
+                  <TileLayer
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  />
+                  <FitToMarker lat={b.technician.location.lat} lng={b.technician.location.lng} />
+                  <Marker
+                    position={[b.technician.location.lat, b.technician.location.lng]}
+                    icon={techIcon}
+                  >
+                    <Popup>
+                      <div className="text-xs">
+                        <div className="font-bold">{b.technician.name}</div>
+                        <div className="text-neutral-500 mt-0.5">
+                          {locFreshness(b.technician.location.updated_at).text}
+                        </div>
+                      </div>
+                    </Popup>
+                  </Marker>
+                </MapContainer>
+              </div>
+            ) : (
+              <div className="h-40 sm:h-52 grid place-items-center bg-neutral-50 border-t border-neutral-200" data-testid="live-map-empty">
+                <div className="text-center max-w-xs px-6">
+                  <MapPin size={28} className="text-neutral-300 mx-auto mb-2" />
+                  <div className="text-sm text-neutral-500">
+                    We'll show your technician's location here once they start heading over.
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
