@@ -53,7 +53,13 @@ export default function LeadDetailPage() {
   };
   const assignTech = async () => {
     if (!techPick) return toast.error("Pick a technician");
-    try { await api.post(`/leads/${lid}/assign-technician`, { technician_id: techPick }); toast.success("Assigned to technician"); load(); }
+    const isReassign = !!lead.technician_id;
+    try {
+      await api.post(`/leads/${lid}/assign-technician`, { technician_id: techPick });
+      toast.success(isReassign ? "Technician reassigned" : "Assigned to technician");
+      setTechPick("");
+      load();
+    }
     catch (e) { toast.error(formatApiError(e)); }
   };
   const suggestAI = async () => {
@@ -215,16 +221,46 @@ export default function LeadDetailPage() {
             </div>
           )}
 
-          {(user?.role === "manager" || user?.role === "super_admin") && lead.manager_id && !lead.technician_id && (
+          {(user?.role === "manager" || user?.role === "super_admin") && lead.manager_id && !["completed", "cancelled", "invalid"].includes(lead.status) && (
             <div className="gr-card">
-              <div className="gr-overline mb-3">Assign to technician</div>
-              <div className="flex gap-2">
-                <select className="gr-input flex-1" value={techPick} onChange={(e) => setTechPick(e.target.value)} data-testid="tech-select">
-                  <option value="">Select technician…</option>
-                  {techs.map((t) => <option key={t.id} value={t.id}>{t.name} · {t.city} · ★{t.rating}</option>)}
-                </select>
-                <button className="gr-btn gr-btn-primary" onClick={assignTech} data-testid="assign-tech-btn"><UserCheck size={14} /> Assign</button>
+              <div className="flex items-center justify-between mb-3">
+                <div className="gr-overline">{lead.technician_id ? "Change technician" : "Assign to technician"}</div>
+                {lead.technician_id && tech && (
+                  <div className="text-xs text-neutral-500" data-testid="current-tech-label">
+                    Current: <span className="font-semibold text-neutral-900">{tech.name}</span>
+                    {tech.city && <span className="font-mono text-[11px] text-neutral-400"> · {tech.city}</span>}
+                  </div>
+                )}
               </div>
+              <div className="flex gap-2">
+                <select
+                  className="gr-input flex-1"
+                  value={techPick}
+                  onChange={(e) => setTechPick(e.target.value)}
+                  data-testid="tech-select"
+                >
+                  <option value="">{lead.technician_id ? "Pick a different technician…" : "Select technician…"}</option>
+                  {techs
+                    .filter((t) => t.id !== lead.technician_id)
+                    .map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.city} · ★{t.rating}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  className="gr-btn gr-btn-primary"
+                  onClick={assignTech}
+                  data-testid={lead.technician_id ? "reassign-tech-btn" : "assign-tech-btn"}
+                >
+                  <UserCheck size={14} /> {lead.technician_id ? "Reassign" : "Assign"}
+                </button>
+              </div>
+              {lead.technician_id && (
+                <div className="text-[11px] text-neutral-500 mt-2">
+                  Reassigning will notify the new technician and remove the current one from this job.
+                </div>
+              )}
             </div>
           )}
 

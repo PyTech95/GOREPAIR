@@ -549,23 +549,55 @@ async def assign_technician(lid: str, body: LeadAssignTech, user: dict = Depends
         raise HTTPException(404, "Lead not found")
     if user["role"] == "manager" and lead.get("manager_id") != user["id"]:
         raise HTTPException(403, "Not your lead")
+    if lead.get("status") in ("completed", "cancelled", "invalid"):
+        raise HTTPException(400, f"Cannot reassign a {lead['status']} job")
     tech = await db.users.find_one({"id": body.technician_id, "role": "technician"})
     if not tech:
         raise HTTPException(404, "Technician not found")
+    prev_tech_id = lead.get("technician_id")
+    if prev_tech_id == body.technician_id:
+        raise HTTPException(400, "Technician is already assigned to this job")
+
+    now = now_iso()
+    reassign_note = {
+        "at": now,
+        "by": user["id"],
+        "by_name": user.get("name"),
+        "from": prev_tech_id,
+        "to": body.technician_id,
+    }
+    update = {
+        "technician_id": body.technician_id,
+        "status": "assigned_technician",
+        "assigned_technician_at": now,
+    }
+    if prev_tech_id:
+        update["last_reassigned_at"] = now
     await db.leads.update_one(
         {"id": lid},
-        {"$set": {
-            "technician_id": body.technician_id,
-            "status": "assigned_technician",
-            "assigned_technician_at": now_iso(),
-        }},
+        {
+            "$set": update,
+            "$push": {"reassignment_history": reassign_note},
+        },
     )
+    # Notify the newly assigned technician
     await send_notification(
-        "whatsapp", tech.get("phone") or tech["email"], "lead_assigned_technician",
+        "whatsapp", tech.get("phone") or tech["email"],
+        "lead_reassigned_technician" if prev_tech_id else "lead_assigned_technician",
         {"tech_name": tech["name"], "appliance": lead.get("appliance_type"),
          "customer": lead.get("customer_name"), "city": lead.get("city"), "priority": lead.get("priority")},
         user_id=tech["id"], lead_id=lid,
     )
+    # If this was a reassignment, notify the previous technician they were removed
+    if prev_tech_id and prev_tech_id != body.technician_id:
+        prev_tech = await db.users.find_one({"id": prev_tech_id})
+        if prev_tech:
+            await send_notification(
+                "whatsapp", prev_tech.get("phone") or prev_tech["email"], "lead_removed_from_technician",
+                {"tech_name": prev_tech["name"], "appliance": lead.get("appliance_type"),
+                 "customer": lead.get("customer_name"), "city": lead.get("city")},
+                user_id=prev_tech["id"], lead_id=lid,
+            )
     return await db.leads.find_one({"id": lid}, {"_id": 0})
 
 @api.post("/leads/{lid}/status")
