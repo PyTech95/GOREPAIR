@@ -113,7 +113,14 @@ async def get_current_user(request: Request) -> dict:
 def require_roles(*roles: str):
     async def _dep(user: dict = Depends(get_current_user)) -> dict:
         if user["role"] not in roles:
-            raise HTTPException(403, f"Requires role: {roles}")
+            role_list = ", ".join(roles)
+            if roles == ("customer",):
+                detail = "This action requires a customer account. Please log in with a customer account."
+            elif user["role"] == "customer":
+                detail = "Staff-only action. Customers can't perform this."
+            else:
+                detail = f"Access denied. Required role: {role_list}. Your role: {user['role']}."
+            raise HTTPException(403, detail)
         return user
     return _dep
 

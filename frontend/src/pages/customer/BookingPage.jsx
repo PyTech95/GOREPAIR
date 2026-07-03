@@ -59,13 +59,34 @@ export default function BookingPage() {
     }
   }, [user]);
 
-  if (!user) {
+  const isCustomer = user?.role === "customer";
+
+  if (!user || !isCustomer) {
     return (
       <div className="min-h-screen grid place-items-center p-6 bg-white">
         <div className="max-w-sm text-center">
-          <div className="font-display font-black text-3xl tracking-tighter mb-3">Login to book</div>
-          <p className="text-sm text-neutral-500 mb-6">Quick phone signup — under 30 seconds.</p>
-          <Link to={`/customer/login?next=/book/${sku}`} className="gr-btn gr-btn-primary w-full">Login or sign up</Link>
+          <div className="font-display font-black text-3xl tracking-tighter mb-3">
+            {user ? "Customer account needed" : "Login to book"}
+          </div>
+          <p className="text-sm text-neutral-500 mb-6">
+            {user
+              ? `You're signed in as a ${String(user.role).replace("_", " ")}. Log out and sign up as a customer to book a service.`
+              : "Quick phone signup — under 30 seconds."}
+          </p>
+          {user ? (
+            <button
+              onClick={() => { localStorage.removeItem("gr_token"); window.location.href = `/customer/register?next=/book/${sku}`; }}
+              className="gr-btn gr-btn-primary w-full"
+              data-testid="switch-to-customer-btn"
+            >
+              Log out & sign up as customer
+            </button>
+          ) : (
+            <Link to={`/customer/login?next=/book/${sku}`} className="gr-btn gr-btn-primary w-full">
+              Login or sign up
+            </Link>
+          )}
+          <Link to="/" className="block mt-4 text-xs text-neutral-400 hover:text-neutral-700">← Back to home</Link>
         </div>
       </div>
     );
